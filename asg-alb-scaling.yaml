@@ -1,0 +1,595 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Auto Scaling Group with ALB, Launch Template, and Target Scaling Policy
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Default: Key-IITC
+
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    AllowedValues:
+      - t4g.micro
+      - t4g.small
+      - t4g.medium
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type
+
+  MinSize:
+    Type: Number
+    Default: 2
+    Description: Minimum number of instances in ASG
+
+  MaxSize:
+    Type: Number
+    Default: 10
+    Description: Maximum number of instances in ASG
+
+  DesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: Desired number of instances in ASG
+
+  # RDS Parameters
+  DBName:
+    Type: String
+    Default: appdb
+    Description: The name of the MySQL database to create
+  # Credentials provided via Secrets Manager (see DBSecretArn)
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: The size of the database (GiB)
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t4g.small
+      - db.t3.micro
+      - db.t3.small
+    Description: RDS instance class
+
+  # AMI for ARM64 (Amazon Linux 2023) via SSM Parameter
+  AmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
+    Description: Latest Amazon Linux 2023 ARM64 AMI from SSM Parameter Store
+
+  # Existing Secrets Manager ARN containing {"username":"...","password":"..."}
+  DBSecretArn:
+    Type: String
+    Description: ARN of the Secrets Manager secret with keys 'username' and 'password' for the DB master credentials
+    Default: arn:aws:secretsmanager:eu-central-1:050752632489:secret:coursesdb-connection-string-STUK6x
+
+  # Toggle RDS public accessibility ("true" or "false")
+  RDSPublicAccess:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Whether the RDS instance should be publicly accessible and placed in public subnets
+
+Conditions:
+  PublicRDS: !Equals [ !Ref RDSPublicAccess, "true" ]
+
+Resources:
+  # VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: ASG-VPC
+
+  # Internet Gateway
+  MyInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ASG-InternetGateway
+
+  # Attach Internet Gateway to VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  # Public Subnets (for ALB)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet2
+
+  # Private Subnets (for EC2 instances)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet2
+
+  # NAT Gateway Elastic IP
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  # NAT Gateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: ASG-NATGateway
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  # Routes
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyInternetGateway
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # Subnet Route Table Associations
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # IAM Role for EC2 instances
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Tags:
+        - Key: Name
+          Value: EC2-CloudWatch-Role
+
+  # Instance Profile
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # Allow EC2 instances to read the DB secret from Secrets Manager
+  EC2ReadDBSecretPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ReadDBSecret
+      Roles:
+        - !Ref EC2Role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Resource:
+              - !Ref DBSecretArn
+
+  # Security Groups
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: ALBSecurityGroup
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 instances
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5001
+          ToPort: 5001
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: EC2SecurityGroup
+
+  # RDS Security Group (allow MySQL from EC2 instances only)
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS MySQL allowing access from EC2 instances
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress: !If 
+        - PublicRDS
+        - 
+          - IpProtocol: tcp
+            FromPort: 3306
+            ToPort: 3306
+            CidrIp: 0.0.0.0/0
+        - 
+          - IpProtocol: tcp
+            FromPort: 3306
+            ToPort: 3306
+            SourceSecurityGroupId: !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: RDSSecurityGroup
+
+  # DB Subnet Group (use private subnets)
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS in private subnets
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: DBSubnetGroup
+
+  # Public DB Subnet Group (use public subnets for public accessibility)
+  DBPublicSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for publicly accessible RDS in public subnets
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: DBPublicSubnetGroup
+
+  # RDS MySQL Instance
+  MyRDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: mysql
+      EngineVersion: '8.0'
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecretArn}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecretArn}:SecretString:password}}'
+      DBName: !Ref DBName
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !If [ PublicRDS, !Ref DBPublicSubnetGroup, !Ref DBSubnetGroup ]
+      PubliclyAccessible: !If [ PublicRDS, true, false ]
+      MultiAZ: false
+      StorageType: gp3
+      AutoMinorVersionUpgrade: true
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+
+  # Launch Template
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: WebServerLaunchTemplate
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyPairName
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref EC2SecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            dnf update -y
+            dnf install -y nodejs
+            node --version > /var/log/node-version.log 2>&1 || true
+
+
+            sudo yum install git -y
+            # Ensure app directory exists under ec2-user home
+            APP_DIR="/home/ec2-user/3tierapp-course-site/course-site-with-nodejs-backend-db/server-nodejs"
+            if [ ! -d "/home/ec2-user/3tierapp-course-site" ]; then
+              su - ec2-user -c "git clone https://github.com/ronhadad22/3tierapp-course-site.git /home/ec2-user/3tierapp-course-site"
+            fi
+            chown -R ec2-user:ec2-user /home/ec2-user/3tierapp-course-site
+
+            # Create systemd service to keep the app running and restart on failure
+            cat >/etc/systemd/system/course-site.service << 'SERVICE'
+            [Unit]
+            Description=Course Site Node.js Server
+            After=network-online.target
+            Wants=network-online.target
+
+            [Service]
+            Type=simple
+            User=ec2-user
+            WorkingDirectory=/home/ec2-user/3tierapp-course-site/course-site-with-nodejs-backend-db/server-nodejs
+            Environment=AWS_REGION=eu-central-1
+            Environment=DB_USERPASS_SECRET_ARN=arn:aws:secretsmanager:eu-central-1:050752632489:secret:coursesdb-connection-string-STUK6x
+            Environment=DB_HOST=${MyRDSInstance.Endpoint.Address}
+            Environment=DB_NAME=coursedb
+            Environment=DB_PORT=3306
+            Environment=DB_PARAMS=sslmode=REQUIRED
+            ExecStartPre=/usr/bin/bash -lc 'if [ -d /home/ec2-user/3tierapp-course-site/.git ]; then git -C /home/ec2-user/3tierapp-course-site pull --rebase; else git clone https://github.com/ronhadad22/3tierapp-course-site.git /home/ec2-user/3tierapp-course-site; fi'
+            ExecStartPre=/usr/bin/npm install
+            ExecStartPre=/usr/bin/npm run prisma:migrate:dev
+            ExecStartPre=/usr/bin/npm run prisma:generate
+            ExecStart=/usr/bin/npm start
+            Restart=always
+            RestartSec=5
+
+            [Install]
+            WantedBy=multi-user.target
+            SERVICE
+
+            systemctl daemon-reload
+            systemctl enable --now course-site.service
+            
+            # Install and start Docker
+            #dnf install -y docker
+            #systemctl enable docker
+            #systemctl start docker
+            #usermod -aG docker ec2-user || true
+
+            # Pull application image from GHCR (public)
+            #docker pull ghcr.io/ronhadad22/course-site-backend/server-nodejs:v1.1.9
+            
+            # Run container on port 80
+            #docker rm -f server-nodejs || true
+            #docker run -d --restart unless-stopped \
+              --name server-nodejs \
+              -p 80:80 \
+              ghcr.io/ronhadad22/course-site-backend/server-nodejs:v1.1.9
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: ASG-WebServer
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ASG-ALB
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: ASG-ALB
+
+  # Target Group
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 5001
+      Protocol: HTTP
+      VpcId: !Ref MyVPC
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetType: instance
+      Matcher:
+        HttpCode: '200'
+      Tags:
+        - Key: Name
+          Value: ASG-TargetGroup
+
+  # ALB Listener
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: arn:aws:acm:eu-central-1:050752632489:certificate/57882c47-bf71-425d-8e2e-96f173fc761b
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+  # Auto Scaling Group
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: WebServer-ASG
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: ASG-WebServer
+          PropagateAtLaunch: true
+
+  # Target Tracking Scaling Policy - ALB Request Count Per Target
+  TargetTrackingScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ALBRequestCountPerTarget
+          ResourceLabel: !Sub 
+            - "${LoadBalancerFullName}/${TargetGroupFullName}"
+            - LoadBalancerFullName: !GetAtt ApplicationLoadBalancer.LoadBalancerFullName
+              TargetGroupFullName: !GetAtt TargetGroup.TargetGroupFullName
+        TargetValue: 100.0
+
+  # Additional Scaling Policy - CPU Utilization (backup)
+  CPUTargetTrackingScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 70.0
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref MyVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC-ID
+
+  ApplicationLoadBalancerDNS:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-ALB-DNS
+
+  ApplicationLoadBalancerURL:
+    Description: URL of the Application Load Balancer
+    Value: !Sub https://${ApplicationLoadBalancer.DNSName}
+
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling Group
+    Value: !Ref AutoScalingGroup
+
+  TargetGroupArn:
+    Description: ARN of Target Group
+    Value: !Ref TargetGroup
+
+  LaunchTemplateId:
+    Description: ID of the Launch Template
+    Value: !Ref LaunchTemplate
+
+  RDSEndpointAddress:
+    Description: RDS MySQL endpoint address
+    Value: !GetAtt MyRDSInstance.Endpoint.Address
+
+  RDSSecurityGroupId:
+    Description: Security Group ID for RDS
+    Value: !Ref RDSSecurityGroup
+
+  DBSecretArnOut:
+    Description: ARN of the Secrets Manager secret used for DB credentials
+    Value: !Ref DBSecretArn
+
+  TargetTrackingPolicyArn:
+    Description: ARN of the Target Tracking Scaling Policy
+    Value: !Ref TargetTrackingScalingPolicy

@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: A basic CloudFormation template to create an S3 bucket and an EC2 instance.
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Default: my-key-pair
+
+Resources:
+  # S3 Bucket Resource
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: iitc-test-cloud-formation-3 # Replace with a globally unique bucket name
+
+  # EC2 Instance Resource
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-02003f9f0fde924ea
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref MySecurityGroup # Reference the Security Group defined below
+      Tags:
+        - Key: Name
+          Value: MyCloudFormationEC2Instance
+
+  # Security Group for EC2 Instance
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # Allows SSH from anywhere (for demonstration, restrict in production)
+
+Outputs:
+  S3BucketName:
+    Description: The name of the S3 bucket
+    Value: !Ref MyS3Bucket
+
+  EC2InstanceId:
+    Description: The ID of the EC2 instance
+    Value: !Ref MyEC2Instance
