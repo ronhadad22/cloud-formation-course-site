@@ -5,7 +5,7 @@ Parameters:
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
-    Default: Key-IITC
+    Default: course-site
 
   InstanceType:
     Type: String
@@ -21,7 +21,7 @@ Parameters:
 
   MinSize:
     Type: Number
-    Default: 2
+    Default: 1
     Description: Minimum number of instances in ASG
 
   MaxSize:
@@ -31,7 +31,7 @@ Parameters:
 
   DesiredCapacity:
     Type: Number
-    Default: 2
+    Default: 1
     Description: Desired number of instances in ASG
 
   # RDS Parameters
@@ -54,17 +54,11 @@ Parameters:
       - db.t3.small
     Description: RDS instance class
 
-  # AMI for ARM64 (Amazon Linux 2023) via SSM Parameter
-  AmiId:
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
-    Description: Latest Amazon Linux 2023 ARM64 AMI from SSM Parameter Store
-
   # Existing Secrets Manager ARN containing {"username":"...","password":"..."}
   DBSecretArn:
     Type: String
     Description: ARN of the Secrets Manager secret with keys 'username' and 'password' for the DB master credentials
-    Default: arn:aws:secretsmanager:eu-central-1:050752632489:secret:coursesdb-connection-string-STUK6x
+    Default: arn:aws:secretsmanager:eu-west-1:050752632489:secret:course-site-db-2pWtuL
 
   # Toggle RDS public accessibility ("true" or "false")
   RDSPublicAccess:
@@ -75,8 +69,15 @@ Parameters:
       - "false"
     Description: Whether the RDS instance should be publicly accessible and placed in public subnets
 
+  # SSL Certificate ARNs for ALB HTTPS listener
+  SSLCertificateArns:
+    Type: CommaDelimitedList
+    Description: List of SSL certificate ARNs from AWS Certificate Manager for HTTPS listener (comma-separated)
+    Default: arn:aws:acm:eu-west-1:050752632489:certificate/f5e7f6bb-16b7-463b-b1e7-cd1254536c47
+
 Conditions:
   PublicRDS: !Equals [ !Ref RDSPublicAccess, "true" ]
+  HasMultipleCertificates: !Not [!Equals [!Join ['', !Ref SSLCertificateArns], !Select [0, !Ref SSLCertificateArns]]]
 
 Resources:
   # VPC
@@ -237,6 +238,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Tags:
         - Key: Name
           Value: EC2-CloudWatch-Role
@@ -373,7 +375,7 @@ Resources:
     Properties:
       LaunchTemplateName: WebServerLaunchTemplate
       LaunchTemplateData:
-        ImageId: !Ref AmiId
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}'
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyPairName
         IamInstanceProfile:
@@ -408,8 +410,8 @@ Resources:
             Type=simple
             User=ec2-user
             WorkingDirectory=/home/ec2-user/3tierapp-course-site/course-site-with-nodejs-backend-db/server-nodejs
-            Environment=AWS_REGION=eu-central-1
-            Environment=DB_USERPASS_SECRET_ARN=arn:aws:secretsmanager:eu-central-1:050752632489:secret:coursesdb-connection-string-STUK6x
+            Environment=AWS_REGION=${AWS::Region}
+            Environment=DB_USERPASS_SECRET_ARN=${DBSecretArn}
             Environment=DB_HOST=${MyRDSInstance.Endpoint.Address}
             Environment=DB_NAME=coursedb
             Environment=DB_PORT=3306
@@ -497,8 +499,17 @@ Resources:
       Port: 443
       Protocol: HTTPS
       Certificates:
-        - CertificateArn: arn:aws:acm:eu-central-1:050752632489:certificate/57882c47-bf71-425d-8e2e-96f173fc761b
+        - CertificateArn: !Select [0, !Ref SSLCertificateArns]
       SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+  # Additional SSL Certificates (if more than one provided)
+  AdditionalSSLCertificates:
+    Type: AWS::ElasticLoadBalancingV2::ListenerCertificate
+    Condition: HasMultipleCertificates
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Certificates:
+        - CertificateArn: !Select [1, !Ref SSLCertificateArns]
 
   # Auto Scaling Group
   AutoScalingGroup:
