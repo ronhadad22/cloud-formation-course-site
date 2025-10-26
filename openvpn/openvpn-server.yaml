@@ -1,0 +1,549 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OpenVPN Server EC2 Instance with automated setup
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for SSH access
+    Default: course-site
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t4g.micro
+      - t4g.small
+      - t4g.medium
+    Description: EC2 instance type for OpenVPN server
+
+  VPNPort:
+    Type: Number
+    Default: 1194
+    Description: UDP port for OpenVPN connections
+    MinValue: 1024
+    MaxValue: 65535
+
+  ClientSubnet:
+    Type: String
+    Default: 10.8.0.0/24
+    Description: Subnet for VPN clients (CIDR notation)
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2])$'
+
+  AllowedCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to connect to OpenVPN (0.0.0.0/0 for anywhere)
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2])$'
+
+  ServerName:
+    Type: String
+    Default: openvpn-server
+    Description: Name for the OpenVPN server
+
+  OpenVPNAMI:
+    Type: String
+    Default: ami-036178441a3eabb6a
+    Description: OpenVPN Access Server Community AMI ID (eu-west-1)
+    AllowedPattern: '^ami-[a-z0-9]{8,17}$'
+
+Resources:
+  # VPC for OpenVPN Server
+  OpenVPNVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-VPC
+
+  # Internet Gateway
+  OpenVPNInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-IGW
+
+  # Attach Internet Gateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      InternetGatewayId: !Ref OpenVPNInternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PublicSubnet
+
+  # Private Subnets for testing VPN connectivity
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateSubnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateSubnet2
+
+  # NAT Gateway Elastic IP
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-NAT-EIP
+
+  # NAT Gateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-NATGateway
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateRouteTable
+
+  # Routes
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref OpenVPNInternetGateway
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # Subnet Route Table Associations
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security Group for OpenVPN Server
+  OpenVPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for OpenVPN server
+      VpcId: !Ref OpenVPNVPC
+      SecurityGroupIngress:
+        # OpenVPN UDP port
+        - IpProtocol: udp
+          FromPort: !Ref VPNPort
+          ToPort: !Ref VPNPort
+          CidrIp: !Ref AllowedCIDR
+          Description: OpenVPN UDP traffic
+        # SSH access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedCIDR
+          Description: SSH access
+        # HTTPS for web admin (optional)
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: !Ref AllowedCIDR
+          Description: OpenVPN Admin Web UI
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-SecurityGroup
+
+  # Security Group for Private Test Instances
+  PrivateInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for private test instances
+      VpcId: !Ref OpenVPNVPC
+      SecurityGroupIngress:
+        # SSH from VPN clients and OpenVPN server
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref ClientSubnet
+          Description: SSH from VPN clients
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref OpenVPNSecurityGroup
+          Description: SSH from OpenVPN server
+        # HTTP for testing
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref ClientSubnet
+          Description: HTTP from VPN clients
+        # HTTPS for testing
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref ClientSubnet
+          Description: HTTPS from VPN clients
+        # ICMP for ping testing
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref ClientSubnet
+          Description: ICMP from VPN clients
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          SourceSecurityGroupId: !Ref OpenVPNSecurityGroup
+          Description: ICMP from OpenVPN server
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateSecurityGroup
+
+  # IAM Role for EC2 Instance
+  OpenVPNRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: OpenVPNServerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:ModifyInstanceAttribute
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-Role
+
+  # Instance Profile
+  OpenVPNInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref OpenVPNRole
+
+  # Elastic IP for OpenVPN Server
+  OpenVPNElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-EIP
+
+  # OpenVPN Server EC2 Instance using Official AMI
+  OpenVPNServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      # Official OpenVPN Access Server AMI
+      ImageId: !Ref OpenVPNAMI
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref OpenVPNInstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref OpenVPNSecurityGroup
+      SourceDestCheck: false  # Important for VPN routing
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          
+          # Log all output
+          exec > >(tee /var/log/openvpn-setup.log) 2>&1
+          
+          echo "Starting OpenVPN Access Server configuration at $(date)"
+          
+          # Wait for OpenVPN Access Server to be ready
+          sleep 30
+          
+          # Set admin password
+          echo "openvpn:OpenVPN123!" | chpasswd
+          
+          # Configure OpenVPN Access Server with public IP
+          echo "Configuring OpenVPN Access Server..."
+          /usr/local/openvpn_as/bin/ovpn-init --batch \
+            --host=${OpenVPNElasticIP} \
+            --local_auth \
+            --force
+          
+          # Wait for configuration to complete
+          sleep 10
+          
+          # Configure network settings for private subnet access
+          echo "Configuring network settings..."
+          /usr/local/openvpn_as/scripts/sacli --key "vpn.client.routing.reroute_gw" --value "true" ConfigPut
+          /usr/local/openvpn_as/scripts/sacli --key "vpn.server.routing.private_network.0" --value "10.0.0.0/16" ConfigPut
+          /usr/local/openvpn_as/scripts/sacli --key "vpn.server.routing.private_access" --value "nat" ConfigPut
+          /usr/local/openvpn_as/scripts/sacli --key "vpn.daemon.0.listen.port" --value "${VPNPort}" ConfigPut
+          
+          # Restart OpenVPN to apply settings
+          echo "Restarting OpenVPN Access Server..."
+          systemctl restart openvpnas
+          
+          # Wait for service to start
+          sleep 20
+          
+          # Verify service is running
+          systemctl status openvpnas
+          
+          # Create setup completion marker
+          touch /tmp/openvpn-setup-complete
+          
+          # Log final status
+          echo "OpenVPN Server configuration completed at $(date)"
+          echo "Admin Web UI: https://${OpenVPNElasticIP}:943/admin"
+          echo "Client Web UI: https://${OpenVPNElasticIP}:943/"
+          echo "Default admin user: openvpn"
+          echo "Default admin password: OpenVPN123!"
+          echo "Setup complete!"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}
+
+  # Test Instance 1 in Private Subnet 1
+  PrivateTestInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref OpenVPNInstanceProfile
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref PrivateInstanceSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          
+          # Update system
+          dnf update -y
+          
+          # Install nginx for testing HTTP connectivity
+          dnf install -y nginx
+          
+          # Create a simple test page
+          cat > /var/www/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Private Test Instance 1</title>
+          </head>
+          <body>
+              <h1>Private Test Instance 1</h1>
+              <p>This is a test instance in Private Subnet 1</p>
+              <p>IP Address: $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)</p>
+              <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
+              <p>If you can see this page, your VPN connection is working!</p>
+          </body>
+          </html>
+          EOF
+          
+          # Start and enable nginx
+          systemctl enable nginx
+          systemctl start nginx
+          
+          # Create test file for download
+          echo "VPN connectivity test successful from Private Instance 1" > /var/www/html/test.txt
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateTest1
+
+  # Test Instance 2 in Private Subnet 2
+  PrivateTestInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref OpenVPNInstanceProfile
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref PrivateInstanceSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          
+          # Update system
+          dnf update -y
+          
+          # Install nginx for testing HTTP connectivity
+          dnf install -y nginx
+          
+          # Create a simple test page
+          cat > /var/www/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Private Test Instance 2</title>
+          </head>
+          <body>
+              <h1>Private Test Instance 2</h1>
+              <p>This is a test instance in Private Subnet 2</p>
+              <p>IP Address: $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)</p>
+              <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
+              <p>If you can see this page, your VPN connection is working!</p>
+          </body>
+          </html>
+          EOF
+          
+          # Start and enable nginx
+          systemctl enable nginx
+          systemctl start nginx
+          
+          # Create test file for download
+          echo "VPN connectivity test successful from Private Instance 2" > /var/www/html/test.txt
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PrivateTest2
+
+  # Associate Elastic IP with Instance
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref OpenVPNServer
+      EIP: !Ref OpenVPNElasticIP
+
+Outputs:
+  ServerPublicIP:
+    Description: Public IP address of the OpenVPN server
+    Value: !Ref OpenVPNElasticIP
+    Export:
+      Name: !Sub ${AWS::StackName}-ServerIP
+
+  AdminWebUI:
+    Description: OpenVPN Admin Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/admin
+
+  ClientWebUI:
+    Description: OpenVPN Client Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/
+
+  SSHCommand:
+    Description: SSH command to connect to the server
+    Value: !Sub ssh -i ~/.ssh/${KeyPairName}.pem ec2-user@${OpenVPNElasticIP}
+
+  DefaultCredentials:
+    Description: Default admin credentials (CHANGE IMMEDIATELY!)
+    Value: "Username: openvpn, Password: OpenVPN123!"
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref OpenVPNServer
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceId
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref OpenVPNSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroup
+
+  PrivateTestInstance1IP:
+    Description: Private IP of Test Instance 1
+    Value: !GetAtt PrivateTestInstance1.PrivateIp
+
+  PrivateTestInstance2IP:
+    Description: Private IP of Test Instance 2
+    Value: !GetAtt PrivateTestInstance2.PrivateIp
+
+  PrivateTestInstance1Id:
+    Description: Instance ID of Test Instance 1
+    Value: !Ref PrivateTestInstance1
+
+  PrivateTestInstance2Id:
+    Description: Instance ID of Test Instance 2
+    Value: !Ref PrivateTestInstance2
+
+  VPNTestInstructions:
+    Description: Instructions for testing VPN connectivity
+    Value: !Sub |
+      After connecting to VPN, test connectivity:
+      1. Ping: ping ${PrivateTestInstance1.PrivateIp} or ping ${PrivateTestInstance2.PrivateIp}
+      2. HTTP: curl http://${PrivateTestInstance1.PrivateIp} or curl http://${PrivateTestInstance2.PrivateIp}
+      3. SSH: ssh -i ~/.ssh/${KeyPairName}.pem ec2-user@${PrivateTestInstance1.PrivateIp}
+      4. Browser: http://${PrivateTestInstance1.PrivateIp} or http://${PrivateTestInstance2.PrivateIp}
+
+  PrivateSubnets:
+    Description: Private subnet information
+    Value: !Sub "Private Subnet 1: 10.0.10.0/24, Private Subnet 2: 10.0.11.0/24"
