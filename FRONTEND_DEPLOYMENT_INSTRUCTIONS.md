@@ -4,13 +4,18 @@
 - AWS account with CLI configured
 - Node.js installed
 
-## Step 1: Request Your Domain
-**Email your lecturer FIRST:**
+## Step 1: Request Your Domains & SSL Certificate
+**Email your lecturer FIRST to get domains and SSL certificate:**
 ```
-Subject: Need subdomain for frontend
+Subject: Need subdomains and SSL certificate
 
 Hi,
-I need a subdomain: [your-name].iitc-course.com
+I need two subdomains for my project:
+- Frontend: [your-name]-fe.iitc-course.com
+- Backend: [your-name]-be.iitc-course.com
+
+Please also provide the SSL certificate ARN for these domains.
+
 Thanks!
 ```
 
@@ -21,8 +26,9 @@ Thanks!
 3. Fill parameters:
    - **Stack Name**: `your-name-frontend`
    - **DomainName**: `iitc-course.com`
-   - **SubdomainName**: `your-name`
-   - **BackendAPIURL**: Your backend URL
+   - **SubdomainName**: `your-name-fe`
+   - **SSLCertificateArn**: `[SSL_CERT_ARN_FROM_LECTURER]`
+   - **BackendAPIURL**: `https://your-name-be.iitc-course.com`
    - **Environment**: `production`
 4. Click Create Stack and wait
 
@@ -38,8 +44,8 @@ cd 3tierapp-course-site/course-site
 # 2. Install
 npm install
 
-# 3. Build (replace YOUR_BACKEND_URL)
-REACT_APP_API_URL=https://YOUR_BACKEND_URL npm run build
+# 3. Build (use your backend domain)
+REACT_APP_API_URL=https://your-name-be.iitc-course.com npm run build
 
 # 4. Get bucket name
 aws cloudformation describe-stacks --stack-name your-name-frontend --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" --output text
@@ -66,14 +72,14 @@ aws cloudformation describe-stacks --stack-name your-name-frontend --query "Stac
 Subject: Please setup DNS
 
 Hi,
-My frontend is deployed. Please point [your-name].iitc-course.com to:
+My frontend is deployed. Please point [your-name]-fe.iitc-course.com to:
 [CLOUDFRONT_URL_FROM_STEP_4]
 
 Thanks!
 ```
 
 ## Done!
-Your site will be live at `https://your-name.iitc-course.com` after lecturer sets up DNS.
+Your site will be live at `https://your-name-fe.iitc-course.com` after lecturer sets up DNS.
 
 ---
 **Problems?** Contact your lecturer.
