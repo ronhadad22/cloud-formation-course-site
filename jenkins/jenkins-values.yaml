@@ -1,0 +1,11 @@
+persistence:
+  enabled: true
+  storageClass: "jenkins-ebs-sc"
+  accessMode: "ReadWriteOnce"
+  size: "8Gi"
+
+# Add toleration for system nodes
+tolerations:
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+    effect: "NoSchedule"

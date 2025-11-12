@@ -1,0 +1,62 @@
+global:
+  # Use LoadBalancer for easy access (or change to NodePort/ClusterIP)
+  service:
+    type: LoadBalancer
+
+server:
+  # Enable insecure mode for easier setup (disable in production)
+  extraArgs:
+    - --insecure
+  
+  # Service configuration
+  service:
+    type: LoadBalancer
+    
+  # Resource requests for EKS Auto Mode
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  # Resource requests for controller
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+repoServer:
+  # Resource requests for repo server
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+dex:
+  # Resource requests for dex
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+redis:
+  # Resource requests for redis
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
