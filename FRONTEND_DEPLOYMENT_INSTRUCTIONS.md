@@ -47,14 +47,14 @@ npm install
 # 3. Build (use your backend domain)
 REACT_APP_API_URL=https://your-name-be.iitc-course.com npm run build
 
-# 4. Get bucket name
-aws cloudformation describe-stacks --stack-name your-name-frontend --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" --output text
+# 4. Get bucket name (replace YOUR_STACK_NAME)
+aws cloudformation describe-stacks --stack-name YOUR_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" --output text
 
 # 5. Upload (replace YOUR_BUCKET_NAME from step 4)
 aws s3 sync ./build s3://YOUR_BUCKET_NAME --delete
 
-# 6. Get distribution ID
-aws cloudformation describe-stacks --stack-name your-name-frontend --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" --output text
+# 6. Get distribution ID (replace YOUR_STACK_NAME)
+aws cloudformation describe-stacks --stack-name YOUR_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" --output text
 
 # 7. Clear cache (replace YOUR_DISTRIBUTION_ID from step 6)
 aws cloudfront create-invalidation --distribution-id YOUR_DISTRIBUTION_ID --paths "/*"
@@ -63,7 +63,7 @@ aws cloudfront create-invalidation --distribution-id YOUR_DISTRIBUTION_ID --path
 ## Step 4: Get Your Website URL
 
 ```bash
-aws cloudformation describe-stacks --stack-name your-name-frontend --query "Stacks[0].Outputs[?OutputKey=='WebsiteURL'].OutputValue" --output text
+aws cloudformation describe-stacks --stack-name YOUR_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='WebsiteURL'].OutputValue" --output text
 ```
 
 ## Step 5: Request DNS Setup
