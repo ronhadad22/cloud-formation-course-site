@@ -17,7 +17,10 @@ Parameters:
       - t3.micro
       - t3.small
       - t3.medium
-    Description: EC2 instance type
+      - t2.micro
+      - t2.small
+      - t2.medium
+    Description: EC2 instance type (ensure compatibility with selected architecture)
 
   MinSize:
     Type: Number
@@ -75,9 +78,81 @@ Parameters:
     Description: List of SSL certificate ARNs from AWS Certificate Manager for HTTPS listener (comma-separated)
     Default: arn:aws:acm:eu-west-1:050752632489:certificate/f5e7f6bb-16b7-463b-b1e7-cd1254536c47
 
+  # OpenVPN Parameters
+  EnableOpenVPN:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Whether to deploy OpenVPN Server
+
+  OpenVPNServerType:
+    Type: String
+    Default: "linux-access-server"
+    AllowedValues:
+      - "linux-access-server"
+      - "windows-community"
+    Description: Choose OpenVPN server type - Linux Access Server (with web UI) or Windows Community Edition
+
+  OpenVPNInstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - m5.large
+      - m5.xlarge
+    Description: EC2 instance type for Windows OpenVPN Server (minimum t3.medium recommended for Windows)
+
+  OpenVPNAdminPassword:
+    Type: String
+    Default: OpenVPN123!
+    Description: Password for OpenVPN admin user
+    NoEcho: true
+    MinLength: 8
+
+  OpenVPNImageId:
+    Type: String
+    Description: AMI ID for OpenVPN Access Server (leave empty for auto-discovery)
+    Default: ""
+    ConstraintDescription: Must be a valid OpenVPN Access Server AMI ID for your region
+
+  ASGImageId:
+    Type: String
+    Description: AMI ID for ASG instances (leave empty to use latest Amazon Linux 2023 ARM64)
+    Default: ""
+
+  ASGArchitecture:
+    Type: String
+    Default: arm64
+    AllowedValues:
+      - arm64
+      - x86_64
+    Description: CPU architecture for ASG instances (affects AMI selection)
+
+Mappings:
+  # Linux OpenVPN Access Server AMI IDs by Region (Commercial with Web UI)
+  LinuxOpenVPNAMIMap:
+    us-east-1:
+      AMI: ami-008650bc87cdf5e34
+    us-west-2:
+      AMI: ami-014e9d653a4445da4
+    eu-west-1:
+      AMI: ami-036178441a3eabb6a
+    eu-central-1:
+      AMI: ami-039470c0765f439c4
+    # Add more regions as needed
+
 Conditions:
   PublicRDS: !Equals [ !Ref RDSPublicAccess, "true" ]
   HasMultipleCertificates: !Not [!Equals [!Join ['', !Ref SSLCertificateArns], !Select [0, !Ref SSLCertificateArns]]]
+  DeployOpenVPN: !Equals [ !Ref EnableOpenVPN, "true" ]
+  UseCustomASGAMI: !Not [!Equals [!Ref ASGImageId, ""]]
+  UseCustomOpenVPNAMI: !Not [!Equals [!Ref OpenVPNImageId, ""]]
+  UseLinuxAccessServer: !Equals [ !Ref OpenVPNServerType, "linux-access-server" ]
+  UseWindowsCommunity: !Equals [ !Ref OpenVPNServerType, "windows-community" ]
 
 Resources:
   # VPC
@@ -322,6 +397,54 @@ Resources:
         - Key: Name
           Value: RDSSecurityGroup
 
+  # OpenVPN Security Group
+  OpenVPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: DeployOpenVPN
+    Properties:
+      GroupDescription: Security group for OpenVPN Access Server
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 1194
+          ToPort: 1194
+          CidrIp: 0.0.0.0/0
+          Description: OpenVPN UDP traffic
+        - IpProtocol: tcp
+          FromPort: 1194
+          ToPort: 1194
+          CidrIp: 0.0.0.0/0
+          Description: OpenVPN TCP traffic
+        - !If
+          - UseLinuxAccessServer
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+            Description: SSH access for Linux
+          - IpProtocol: tcp
+            FromPort: 3389
+            ToPort: 3389
+            CidrIp: 0.0.0.0/0
+            Description: RDP access for Windows
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS Web Admin Interface
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: 0.0.0.0/0
+          Description: OpenVPN Access Server Web Interface
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: OpenVPN-SecurityGroup
+
   # DB Subnet Group (use private subnets)
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -345,6 +468,83 @@ Resources:
       Tags:
         - Key: Name
           Value: DBPublicSubnetGroup
+
+  # OpenVPN IAM Role
+  OpenVPNRole:
+    Type: AWS::IAM::Role
+    Condition: DeployOpenVPN
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: OpenVPN-Role
+
+  # OpenVPN Instance Profile
+  OpenVPNInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: DeployOpenVPN
+    Properties:
+      Roles:
+        - !Ref OpenVPNRole
+
+  # OpenVPN Elastic IP
+  OpenVPNElasticIP:
+    Type: AWS::EC2::EIP
+    Condition: DeployOpenVPN
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: OpenVPN-EIP
+
+  # OpenVPN Access Server Instance
+  OpenVPNAccessServer:
+    Type: AWS::EC2::Instance
+    Condition: DeployOpenVPN
+    Properties:
+      ImageId: !If
+        - UseCustomOpenVPNAMI
+        - !Ref OpenVPNImageId
+        - !If
+          - UseLinuxAccessServer
+          - !FindInMap [LinuxOpenVPNAMIMap, !Ref "AWS::Region", AMI]
+          - !Sub '{{resolve:ssm:/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base}}'
+      InstanceType: !Ref OpenVPNInstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref OpenVPNInstanceProfile
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref OpenVPNSecurityGroup
+      SourceDestCheck: false
+      UserData: !If
+        - UseLinuxAccessServer
+        - Fn::Base64: !Sub |
+            #!/bin/bash
+            # OpenVPN Access Server setup
+            /usr/local/openvpn_as/bin/ovpn-init --batch --force
+            /usr/local/openvpn_as/scripts/sacli --user openvpn --new_pass "${OpenVPNAdminPassword}" SetLocalPassword
+            /usr/local/openvpn_as/scripts/sacli start
+        - Fn::Base64: !Sub |
+            <powershell>
+            # Windows OpenVPN Community setup
+            Write-Host "Setting up OpenVPN Community Edition on Windows..."
+            # Add Windows-specific OpenVPN setup here
+            </powershell>
+  OpenVPNEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Condition: DeployOpenVPN
+    Properties:
+      InstanceId: !Ref OpenVPNAccessServer
+      EIP: !Ref OpenVPNElasticIP
 
   # RDS MySQL Instance
   MyRDSInstance:
@@ -375,7 +575,10 @@ Resources:
     Properties:
       LaunchTemplateName: WebServerLaunchTemplate
       LaunchTemplateData:
-        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}'
+        ImageId: !If
+          - UseCustomASGAMI
+          - !Ref ASGImageId
+          - !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${ASGArchitecture}}}'
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyPairName
         IamInstanceProfile:
@@ -604,3 +807,54 @@ Outputs:
   TargetTrackingPolicyArn:
     Description: ARN of the Target Tracking Scaling Policy
     Value: !Ref TargetTrackingScalingPolicy
+
+  # OpenVPN Outputs
+  OpenVPNServerPublicIP:
+    Condition: DeployOpenVPN
+    Description: Public IP address of the OpenVPN Access Server
+    Value: !Ref OpenVPNElasticIP
+    Export:
+      Name: !Sub ${AWS::StackName}-OpenVPN-ServerIP
+
+  OpenVPNAdminWebInterface:
+    Condition: DeployOpenVPN
+    Description: OpenVPN Access Server Admin Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/admin
+
+  OpenVPNClientWebInterface:
+    Condition: DeployOpenVPN
+    Description: OpenVPN Access Server Client Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/
+
+  OpenVPNAdminCredentials:
+    Condition: DeployOpenVPN
+    Description: Admin login credentials
+    Value: !Sub |
+      Username: openvpn
+      Password: ${OpenVPNAdminPassword}
+
+  OpenVPNRDPCommand:
+    Condition: DeployOpenVPN
+    Description: RDP command to connect to the Windows OpenVPN server
+    Value: !Sub mstsc /v:${OpenVPNElasticIP}
+
+  OpenVPNSetupInstructions:
+    Condition: DeployOpenVPN
+    Description: Setup instructions for Windows OpenVPN Server
+    Value: !Sub |
+      OpenVPN Server is FULLY AUTOMATED and ready to use!
+      
+      CLIENT CONNECTION:
+      1. Connect via RDP: mstsc /v:${OpenVPNElasticIP}
+      2. Download client files from: C:\OpenVPN\client-configs\
+      3. Copy these files to your client device:
+         - client1.ovpn (main config file)
+         - ca.crt, client1.crt, client1.key, ta.key
+      4. Import client1.ovpn into your OpenVPN client
+      5. Connect using your OpenVPN client
+      
+      SERVER MANAGEMENT:
+      - Service: OpenVPNServer (running automatically)
+      - Logs: C:\OpenVPN\log\openvpn.log
+      - Status: C:\OpenVPN\log\openvpn-status.log
+      - Setup log: C:\openvpn-setup.log

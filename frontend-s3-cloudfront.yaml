@@ -1,0 +1,510 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Frontend deployment with S3 bucket and CloudFront distribution for static website hosting
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Domain name for the website (e.g., example.com)
+    Default: ""
+    
+  SubdomainName:
+    Type: String
+    Description: Subdomain for the website (e.g., www, app, frontend)
+    Default: "www"
+    
+  SSLCertificateArn:
+    Type: String
+    Description: ARN of SSL certificate from AWS Certificate Manager (must be in us-east-1 for CloudFront)
+    Default: ""
+    
+  BackendAPIURL:
+    Type: String
+    Description: Backend API URL (ALB DNS name from backend stack)
+    Default: ""
+    
+    
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues:
+      - PriceClass_All
+      - PriceClass_200
+      - PriceClass_100
+    Description: CloudFront price class (PriceClass_100 = US, Canada, Europe)
+    
+  IndexDocument:
+    Type: String
+    Default: index.html
+    Description: Default document for the website
+    
+  ErrorDocument:
+    Type: String
+    Default: error.html
+    Description: Error document for the website
+    
+  CacheBehaviorTTL:
+    Type: Number
+    Default: 86400
+    Description: Default TTL for CloudFront cache (in seconds)
+    
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Environment name for resource tagging
+
+Conditions:
+  HasDomainName: !Not [!Equals [!Ref DomainName, ""]]
+  HasSSLCertificate: !Not [!Equals [!Ref SSLCertificateArn, ""]]
+  HasBackendAPI: !Not [!Equals [!Ref BackendAPIURL, ""]]
+
+Resources:
+  # S3 Bucket for website content
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 
+        - "${DomainPrefix}-frontend-${Environment}-${AWS::AccountId}"
+        - DomainPrefix: !If 
+          - HasDomainName
+          - !Sub "${SubdomainName}.${DomainName}"
+          - "website"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-WebsiteBucket"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: StaticWebsiteHosting
+
+
+
+  # Origin Access Control for CloudFront
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-OAC"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        Description: Origin Access Control for S3 bucket
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases: !If
+          - HasDomainName
+          - - !Sub "${SubdomainName}.${DomainName}"
+          - !Ref AWS::NoValue
+        Comment: !Sub "CloudFront distribution for ${AWS::StackName}"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled for dynamic content
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # CORS-S3Origin
+          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd  # SimpleCORS
+          Compress: true
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - POST
+            - PATCH
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+        CacheBehaviors:
+          # Cache static assets longer
+          - PathPattern: "*.js"
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+            Compress: true
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+          - PathPattern: "*.css"
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+            Compress: true
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+          - PathPattern: "*.png"
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+          - PathPattern: "*.jpg"
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+          # API proxy to backend (if backend URL provided)
+          - !If
+            - HasBackendAPI
+            - PathPattern: "/api/*"
+              TargetOriginId: BackendOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+              OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+            - !Ref AWS::NoValue
+        DefaultRootObject: !Ref IndexDocument
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref OriginAccessControl
+          - !If
+            - HasBackendAPI
+            - Id: BackendOrigin
+              DomainName: !Ref BackendAPIURL
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols:
+                  - TLSv1.2
+            - !Ref AWS::NoValue
+        PriceClass: !Ref PriceClass
+        ViewerCertificate: !If
+          - HasSSLCertificate
+          - AcmCertificateArn: !Ref SSLCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: !Sub "/${IndexDocument}"
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: !Sub "/${IndexDocument}"
+            ErrorCachingMinTTL: 300
+        # WebACLId: !Ref WebACL  # Commented out - WAF not needed currently
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-CloudFront"
+        - Key: Environment
+          Value: !Ref Environment
+
+  # WAF Web ACL for CloudFront (Commented out - not needed currently)
+  # WebACL:
+  #   Type: AWS::WAFv2::WebACL
+  #   Properties:
+  #     Name: !Sub "${AWS::StackName}-WebACL"
+  #     Scope: CLOUDFRONT
+  #     DefaultAction:
+  #       Allow: {}
+  #     Rules:
+  #       - Name: AWSManagedRulesCommonRuleSet
+  #         Priority: 1
+  #         OverrideAction:
+  #           None: {}
+  #         Statement:
+  #           ManagedRuleGroupStatement:
+  #             VendorName: AWS
+  #             Name: AWSManagedRulesCommonRuleSet
+  #         VisibilityConfig:
+  #           SampledRequestsEnabled: true
+  #           CloudWatchMetricsEnabled: true
+  #           MetricName: CommonRuleSetMetric
+  #       - Name: AWSManagedRulesKnownBadInputsRuleSet
+  #         Priority: 2
+  #         OverrideAction:
+  #           None: {}
+  #         Statement:
+  #           ManagedRuleGroupStatement:
+  #             VendorName: AWS
+  #             Name: AWSManagedRulesKnownBadInputsRuleSet
+  #         VisibilityConfig:
+  #           SampledRequestsEnabled: true
+  #           CloudWatchMetricsEnabled: true
+  #           MetricName: KnownBadInputsRuleSetMetric
+  #       - Name: RateLimitRule
+  #         Priority: 3
+  #         Action:
+  #           Block: {}
+  #         Statement:
+  #           RateBasedStatement:
+  #             Limit: 2000
+  #             AggregateKeyType: IP
+  #         VisibilityConfig:
+  #           SampledRequestsEnabled: true
+  #           CloudWatchMetricsEnabled: true
+  #           MetricName: RateLimitMetric
+  #     VisibilityConfig:
+  #       SampledRequestsEnabled: true
+  #       CloudWatchMetricsEnabled: true
+  #       MetricName: !Sub "${AWS::StackName}WebACL"
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub "${AWS::StackName}-WebACL"
+  #       - Key: Environment
+  #         Value: !Ref Environment
+
+  # S3 Bucket Policy for CloudFront OAC
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # IAM Role for deployment (CI/CD)
+  DeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-DeploymentRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - codebuild.amazonaws.com
+                - codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Sub "${AWS::StackName}-deployment"
+      Policies:
+        - PolicyName: S3DeploymentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "${WebsiteBucket}/*"
+                  - !GetAtt WebsiteBucket.Arn
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                  - cloudfront:ListDistributions
+                Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-DeploymentRole"
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Alarms
+  CloudFrontErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-CloudFront-ErrorRate"
+      AlarmDescription: CloudFront 4xx/5xx error rate is too high
+      MetricName: 4xxErrorRate
+      Namespace: AWS/CloudFront
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DistributionId
+          Value: !Ref CloudFrontDistribution
+      TreatMissingData: notBreaching
+
+  # Route 53 Record (if domain name provided)
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDomainName
+    Properties:
+      HostedZoneName: !Sub "${DomainName}."
+      Name: !Sub "${SubdomainName}.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)
+        EvaluateTargetHealth: false
+
+Outputs:
+  WebsiteBucketName:
+    Description: Name of the S3 bucket for website content
+    Value: !Ref WebsiteBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucket"
+
+  WebsiteBucketArn:
+    Description: ARN of the S3 bucket for website content
+    Value: !GetAtt WebsiteBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucketArn"
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"
+
+  CloudFrontDistributionDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomainName"
+
+  WebsiteURL:
+    Description: Website URL
+    Value: !If
+      - HasDomainName
+      - !Sub "https://${SubdomainName}.${DomainName}"
+      - !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteURL"
+
+  DeploymentRoleArn:
+    Description: ARN of the deployment role for CI/CD
+    Value: !GetAtt DeploymentRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DeploymentRoleArn"
+
+  DeploymentCommands:
+    Description: Commands to deploy frontend to S3 and invalidate CloudFront
+    Value: !Sub |
+      # Clone the repository
+      git clone https://github.com/ronhadad22/3tierapp-course-site.git
+      cd 3tierapp-course-site/course-site
+      
+      # Install dependencies
+      npm install
+      
+      # Configure backend API URL (choose one method):
+      
+      # Method 1: Environment variable during build
+      REACT_APP_API_URL=https://${BackendAPIURL} npm run build
+      
+      # Method 2: Create .env.production file  
+      echo "REACT_APP_API_URL=https://${BackendAPIURL}" > .env.production
+      # npm run build
+      
+      # Upload build files to S3
+      aws s3 sync ./build s3://${WebsiteBucket} --delete
+      
+      # Invalidate CloudFront cache
+      aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"
+      
+      # Or use the deployment role for CI/CD
+      aws sts assume-role --role-arn ${DeploymentRole.Arn} --role-session-name deployment --external-id ${AWS::StackName}-deployment
+
+
+  # WebACLArn:  # Commented out - WAF not needed currently
+  #   Description: ARN of the WAF Web ACL
+  #   Value: !GetAtt WebACL.Arn
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-WebACLArn"
+
+  SetupInstructions:
+    Description: Instructions for setting up the frontend
+    Value: !Sub |
+      Frontend Infrastructure Setup Complete!
+      
+      DEPLOYMENT:
+      1. Clone repository: git clone https://github.com/ronhadad22/3tierapp-course-site.git
+      2. Navigate to frontend: cd 3tierapp-course-site/course-site
+      3. Install dependencies: npm install
+      4. Configure backend URL: Set REACT_APP_API_URL=https://${BackendAPIURL}
+      5. Build application: npm run build
+      6. Upload to S3: aws s3 sync ./build s3://${WebsiteBucket} --delete
+      7. Invalidate CloudFront: aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"
+      
+      WEBSITE ACCESS:
+      - CloudFront URL: https://${CloudFrontDistribution.DomainName}
+      - Custom Domain: https://${SubdomainName}.${DomainName} (if configured)
+      
+      BACKEND INTEGRATION:
+      - API calls to /api/* will be proxied to: ${BackendAPIURL}
+      - Configure your frontend to use relative URLs: /api/endpoint
+      
+      MONITORING:
+      - CloudFront Metrics: AWS/CloudFront namespace
+      
+      SECURITY:
+      - Origin Access Control: Secure S3 access via CloudFront only
+      - HTTPS enforcement: All traffic redirected to HTTPS
+      # - WAF Web ACL: Commented out (not needed currently)
+      # - Rate limiting: 2000 requests per 5 minutes per IP  
+      # - AWS Managed Rules: CommonRuleSet, KnownBadInputs

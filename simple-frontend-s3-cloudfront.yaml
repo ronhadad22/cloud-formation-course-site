@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple frontend deployment with S3 bucket and CloudFront for React applications
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Domain name for the website (e.g., example.com)
+    Default: ""
+    
+  SubdomainName:
+    Type: String
+    Description: Subdomain for the website (e.g., www, app, frontend)
+    Default: "www"
+    
+  SSLCertificateArn:
+    Type: String
+    Description: ARN of SSL certificate from AWS Certificate Manager (must be in us-east-1 for CloudFront)
+    Default: ""
+    
+  BackendAPIURL:
+    Type: String
+    Description: Backend API URL (ALB DNS name from backend stack)
+    Default: ""
+    
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Environment name for resource tagging
+
+Conditions:
+  HasDomainName: !Not [!Equals [!Ref DomainName, ""]]
+  HasSSLCertificate: !Not [!Equals [!Ref SSLCertificateArn, ""]]
+  HasBackendAPI: !Not [!Equals [!Ref BackendAPIURL, ""]]
+
+Resources:
+  # S3 Bucket for website content
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 
+        - "${DomainPrefix}-frontend-${Environment}-${AWS::AccountId}"
+        - DomainPrefix: !If 
+          - HasDomainName
+          - !Sub "${SubdomainName}.${DomainName}"
+          - "react-app"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-WebsiteBucket"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: ReactAppHosting
+
+  # Origin Access Control for CloudFront
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-OAC"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        Description: Origin Access Control for S3 bucket
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases: !If
+          - HasDomainName
+          - - !Sub "${SubdomainName}.${DomainName}"
+          - !Ref AWS::NoValue
+        Comment: !Sub "CloudFront distribution for ${AWS::StackName} React app"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # CORS-S3Origin
+          Compress: true
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref OriginAccessControl
+        PriceClass: PriceClass_100
+        ViewerCertificate: !If
+          - HasSSLCertificate
+          - AcmCertificateArn: !Ref SSLCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 300
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-CloudFront"
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket Policy for CloudFront OAC
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # Route 53 Record (if domain name provided)
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDomainName
+    Properties:
+      HostedZoneName: !Sub "${DomainName}."
+      Name: !Sub "${SubdomainName}.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)
+        EvaluateTargetHealth: false
+
+Outputs:
+  WebsiteBucketName:
+    Description: Name of the S3 bucket for website content
+    Value: !Ref WebsiteBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucket"
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"
+
+  CloudFrontDistributionDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomainName"
+
+  WebsiteURL:
+    Description: Website URL
+    Value: !If
+      - HasDomainName
+      - !Sub "https://${SubdomainName}.${DomainName}"
+      - !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteURL"
+
+  DeploymentCommands:
+    Description: Commands to deploy React app to S3 and invalidate CloudFront
+    Value: !Sub |
+      # Clone the repository
+      git clone https://github.com/ronhadad22/3tierapp-course-site.git
+      cd 3tierapp-course-site/course-site
+      
+      # Install dependencies
+      npm install
+      
+      # Build the React app with backend API URL
+      REACT_APP_API_URL=${BackendAPIURL} npm run build
+      
+      # Upload to S3
+      aws s3 sync ./build s3://${WebsiteBucket} --delete
+      
+      # Invalidate CloudFront cache
+      aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"
+
+  SetupInstructions:
+    Description: Instructions for setting up the React frontend
+    Value: !Sub |
+      React Frontend Infrastructure Setup Complete!
+      
+      DEPLOYMENT STEPS:
+      1. Clone: git clone https://github.com/ronhadad22/3tierapp-course-site.git
+      2. Navigate: cd 3tierapp-course-site/course-site
+      3. Install: npm install
+      4. Build: REACT_APP_API_URL=${BackendAPIURL} npm run build
+      5. Upload: aws s3 sync ./build s3://${WebsiteBucket} --delete
+      6. Invalidate: aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"
+      
+      ACCESS:
+      - CloudFront URL: https://${CloudFrontDistribution.DomainName}
+      - Custom Domain: https://${SubdomainName}.${DomainName} (if configured)
+      
+      FEATURES:
+      - Single Page Application (SPA) support with error redirects
+      - HTTPS enforcement
+      - Secure S3 access via Origin Access Control
+      - Global CDN with CloudFront
+      - Gzip compression enabled
+      
+      Your React app is ready to deploy!

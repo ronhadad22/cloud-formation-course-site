@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OpenVPN Access Server with Web Interface
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for SSH access
+    Default: course-site
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+    Description: EC2 instance type for OpenVPN Access Server
+
+  VPNPort:
+    Type: Number
+    Default: 1194
+    Description: UDP port for OpenVPN connections
+    MinValue: 1024
+    MaxValue: 65535
+
+  AllowedCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to connect to OpenVPN (0.0.0.0/0 for anywhere)
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2])$'
+
+  ServerName:
+    Type: String
+    Default: openvpn-access-server
+    Description: Name for the OpenVPN Access Server
+
+  AdminPassword:
+    Type: String
+    Default: OpenVPN123!
+    Description: Password for OpenVPN admin user
+    NoEcho: true
+    MinLength: 8
+
+Resources:
+  # VPC for OpenVPN Access Server
+  OpenVPNVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-VPC
+
+  # Internet Gateway
+  OpenVPNInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-IGW
+
+  # Attach Internet Gateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      InternetGatewayId: !Ref OpenVPNInternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PublicSubnet
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref OpenVPNVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-PublicRouteTable
+
+  # Route
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref OpenVPNInternetGateway
+
+  # Subnet Route Table Association
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group for OpenVPN Access Server
+  OpenVPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for OpenVPN Access Server
+      VpcId: !Ref OpenVPNVPC
+      SecurityGroupIngress:
+        # OpenVPN UDP port
+        - IpProtocol: udp
+          FromPort: !Ref VPNPort
+          ToPort: !Ref VPNPort
+          CidrIp: !Ref AllowedCIDR
+          Description: OpenVPN UDP traffic
+        # OpenVPN TCP port (for web interface and TCP connections)
+        - IpProtocol: tcp
+          FromPort: !Ref VPNPort
+          ToPort: !Ref VPNPort
+          CidrIp: !Ref AllowedCIDR
+          Description: OpenVPN TCP traffic
+        # SSH access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedCIDR
+          Description: SSH access
+        # HTTPS for web admin interface
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowedCIDR
+          Description: HTTPS Web Admin Interface
+        # HTTP for web interface (redirects to HTTPS)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedCIDR
+          Description: HTTP Web Interface
+        # OpenVPN Access Server web interface port
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: !Ref AllowedCIDR
+          Description: OpenVPN Access Server Web Interface
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-SecurityGroup
+
+  # IAM Role for EC2 Instance
+  OpenVPNRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-Role
+
+  # Instance Profile
+  OpenVPNInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref OpenVPNRole
+
+  # Elastic IP for OpenVPN Access Server
+  OpenVPNElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}-EIP
+
+  # OpenVPN Access Server EC2 Instance
+  OpenVPNAccessServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      # OpenVPN Access Server AMI
+      ImageId: ami-036178441a3eabb6a
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref OpenVPNInstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref OpenVPNSecurityGroup
+      SourceDestCheck: false  # Important for VPN routing
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          
+          # Log all output
+          exec > >(tee /var/log/openvpn-access-server-setup.log) 2>&1
+          
+          echo "Starting OpenVPN Access Server configuration at $(date)"
+          
+          # Wait for the system to be ready
+          sleep 30
+          
+          # Get the public IP
+          PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          
+          # Configure OpenVPN Access Server
+          /usr/local/openvpn_as/bin/ovpn-init --batch \
+            --host=$PUBLIC_IP \
+            --admin_user=openvpn \
+            --admin_pw=${AdminPassword} \
+            --reroute_gw=1 \
+            --reroute_dns=1 \
+            --port=${VPNPort}
+          
+          # Start the OpenVPN Access Server service
+          systemctl enable openvpnas
+          systemctl start openvpnas
+          
+          # Wait for service to start
+          sleep 10
+          
+          # Verify service is running
+          systemctl status openvpnas
+          
+          echo "OpenVPN Access Server setup completed at $(date)"
+          echo "Admin Interface: https://$PUBLIC_IP:943/admin"
+          echo "Client Interface: https://$PUBLIC_IP:943/"
+          echo "Admin User: openvpn"
+          echo "Admin Password: ${AdminPassword}"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ServerName}
+
+  # Associate Elastic IP with Instance
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref OpenVPNAccessServer
+      EIP: !Ref OpenVPNElasticIP
+
+Outputs:
+  ServerPublicIP:
+    Description: Public IP address of the OpenVPN Access Server
+    Value: !Ref OpenVPNElasticIP
+    Export:
+      Name: !Sub ${AWS::StackName}-ServerIP
+
+  AdminWebInterface:
+    Description: OpenVPN Access Server Admin Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/admin
+
+  ClientWebInterface:
+    Description: OpenVPN Access Server Client Web Interface URL
+    Value: !Sub https://${OpenVPNElasticIP}:943/
+
+  AdminCredentials:
+    Description: Admin login credentials
+    Value: !Sub |
+      Username: openvpn
+      Password: ${AdminPassword}
+
+  SSHCommand:
+    Description: SSH command to connect to the server
+    Value: !Sub ssh -i ~/.ssh/${KeyPairName}.pem openvpnas@${OpenVPNElasticIP}
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref OpenVPNAccessServer
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceId
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref OpenVPNSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroup
+
+  SetupInstructions:
+    Description: Setup instructions
+    Value: !Sub |
+      1. Access Admin Interface: https://${OpenVPNElasticIP}:943/admin
+      2. Login with username: openvpn, password: ${AdminPassword}
+      3. Configure VPN settings as needed
+      4. Create user accounts in User Management
+      5. Users can download client profiles from: https://${OpenVPNElasticIP}:943/

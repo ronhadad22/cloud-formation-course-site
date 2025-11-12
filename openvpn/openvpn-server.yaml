@@ -43,11 +43,12 @@ Parameters:
     Default: openvpn-server
     Description: Name for the OpenVPN server
 
-  OpenVPNAMI:
+  AdminPassword:
     Type: String
-    Default: ami-036178441a3eabb6a
-    Description: OpenVPN Access Server Community AMI ID (eu-west-1)
-    AllowedPattern: '^ami-[a-z0-9]{8,17}$'
+    Default: OpenVPN123!
+    Description: Password for OpenVPN admin user
+    NoEcho: true
+    MinLength: 8
 
 Resources:
   # VPC for OpenVPN Server
@@ -200,12 +201,18 @@ Resources:
           ToPort: 22
           CidrIp: !Ref AllowedCIDR
           Description: SSH access
+        # HTTP for web interface
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedCIDR
+          Description: HTTP Web Server
         # HTTPS for web admin (optional)
         - IpProtocol: tcp
-          FromPort: 943
-          ToPort: 943
+          FromPort: 443
+          ToPort: 443
           CidrIp: !Ref AllowedCIDR
-          Description: OpenVPN Admin Web UI
+          Description: HTTPS Web Server
       SecurityGroupEgress:
         # Allow all outbound traffic
         - IpProtocol: -1
@@ -310,12 +317,12 @@ Resources:
         - Key: Name
           Value: !Sub ${ServerName}-EIP
 
-  # OpenVPN Server EC2 Instance using Official AMI
+  # OpenVPN Server EC2 Instance using Community Edition
   OpenVPNServer:
     Type: AWS::EC2::Instance
     Properties:
-      # Official OpenVPN Access Server AMI
-      ImageId: !Ref OpenVPNAMI
+      # Use Ubuntu 22.04 LTS AMI
+      ImageId: !Sub '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref OpenVPNInstanceProfile
@@ -326,54 +333,206 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
+          set -euxo pipefail
           
           # Log all output
           exec > >(tee /var/log/openvpn-setup.log) 2>&1
           
-          echo "Starting OpenVPN Access Server configuration at $(date)"
+          echo "Starting OpenVPN Community Edition installation at $(date)"
           
-          # Wait for OpenVPN Access Server to be ready
-          sleep 30
+          # Update system
+          apt update -y
+          DEBIAN_FRONTEND=noninteractive apt upgrade -y
           
-          # Set admin password
-          echo "openvpn:OpenVPN123!" | chpasswd
+          # Install required packages
+          DEBIAN_FRONTEND=noninteractive apt install -y openvpn easy-rsa iptables-persistent nginx openssl curl
           
-          # Configure OpenVPN Access Server with public IP
-          echo "Configuring OpenVPN Access Server..."
-          /usr/local/openvpn_as/bin/ovpn-init --batch \
-            --host=${OpenVPNElasticIP} \
-            --local_auth \
-            --force
+          # Enable IP forwarding
+          echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf
+          sysctl -p
           
-          # Wait for configuration to complete
+          # Create OpenVPN directory structure
+          mkdir -p /etc/openvpn/server
+          mkdir -p /etc/openvpn/client
+          mkdir -p /var/log/openvpn
+          
+          # Set up Easy-RSA
+          cp -r /usr/share/easy-rsa /etc/openvpn/
+          cd /etc/openvpn/easy-rsa
+          
+          # Initialize PKI
+          ./easyrsa init-pki
+          
+          # Create CA certificate (non-interactive)
+          echo "OpenVPN-CA" | ./easyrsa build-ca nopass
+          
+          # Generate server certificate and key
+          echo "yes" | ./easyrsa build-server-full server nopass
+          
+          # Generate Diffie-Hellman parameters
+          ./easyrsa gen-dh
+          
+          # Generate TLS-auth key
+          openvpn --genkey secret pki/ta.key
+          
+          # Copy certificates to OpenVPN directory
+          cp pki/ca.crt /etc/openvpn/server/
+          cp pki/issued/server.crt /etc/openvpn/server/
+          cp pki/private/server.key /etc/openvpn/server/
+          cp pki/dh.pem /etc/openvpn/server/
+          cp pki/ta.key /etc/openvpn/server/
+          
+          # Create server configuration
+          cat > /etc/openvpn/server/server.conf << 'EOF'
+          port ${VPNPort}
+          proto udp
+          dev tun
+          ca ca.crt
+          cert server.crt
+          key server.key
+          dh dh.pem
+          server ${ClientSubnet}
+          ifconfig-pool-persist /var/log/openvpn/ipp.txt
+          push "redirect-gateway def1 bypass-dhcp"
+          push "dhcp-option DNS 8.8.8.8"
+          push "dhcp-option DNS 8.8.4.4"
+          push "route 10.0.0.0 255.255.0.0"
+          keepalive 10 120
+          tls-auth ta.key 0
+          cipher AES-256-GCM
+          auth SHA256
+          user nobody
+          group nobody
+          persist-key
+          persist-tun
+          status /var/log/openvpn/status.log
+          log-append /var/log/openvpn/openvpn.log
+          verb 3
+          explicit-exit-notify 1
+          EOF
+          
+          # Set up iptables for NAT
+          iptables -t nat -A POSTROUTING -s ${ClientSubnet} -o eth0 -j MASQUERADE
+          iptables -A INPUT -i tun+ -j ACCEPT
+          iptables -A FORWARD -i tun+ -j ACCEPT
+          iptables -A FORWARD -i tun+ -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+          iptables -A FORWARD -i eth0 -o tun+ -m state --state RELATED,ESTABLISHED -j ACCEPT
+          
+          # Save iptables rules
+          iptables-save > /etc/iptables/rules.v4
+          systemctl enable netfilter-persistent
+          
+          # Enable and start OpenVPN
+          systemctl enable openvpn-server@server
+          systemctl start openvpn-server@server
+          
+          # Create client certificate generation script
+          cat > /etc/openvpn/create-client.sh << 'EOF'
+          #!/bin/bash
+          CLIENT_NAME=$1
+          if [ -z "$CLIENT_NAME" ]; then
+              echo "Usage: $0 <client_name>"
+              exit 1
+          fi
+          
+          cd /etc/openvpn/easy-rsa
+          ./easyrsa build-client-full $CLIENT_NAME nopass
+          
+          # Create client config
+          mkdir -p /etc/openvpn/client/$CLIENT_NAME
+          cat > /etc/openvpn/client/$CLIENT_NAME/$CLIENT_NAME.ovpn << EOL
+          client
+          dev tun
+          proto udp
+          remote ${OpenVPNElasticIP} ${VPNPort}
+          resolv-retry infinite
+          nobind
+          persist-key
+          persist-tun
+          remote-cert-tls server
+          cipher AES-256-GCM
+          auth SHA256
+          verb 3
+          <ca>
+          $(cat /etc/openvpn/server/ca.crt)
+          </ca>
+          <cert>
+          $(cat /etc/openvpn/easy-rsa/pki/issued/$CLIENT_NAME.crt)
+          </cert>
+          <key>
+          $(cat /etc/openvpn/easy-rsa/pki/private/$CLIENT_NAME.key)
+          </key>
+          <tls-auth>
+          $(cat /etc/openvpn/server/ta.key)
+          </tls-auth>
+          key-direction 1
+          EOL
+          
+          echo "Client configuration created: /etc/openvpn/client/$CLIENT_NAME/$CLIENT_NAME.ovpn"
+          EOF
+          
+          chmod +x /etc/openvpn/create-client.sh
+          
+          # Create default client
+          /etc/openvpn/create-client.sh client1
+          
+          # Set up simple web server for client download
+          mkdir -p /var/www/html/clients
+          cp -r /etc/openvpn/client/* /var/www/html/clients/
+          
+          # Create simple web interface
+          cat > /var/www/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>OpenVPN Community Server</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  .container { max-width: 800px; }
+                  .download-link { background: #007cba; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>OpenVPN Community Server</h1>
+                  <p>Your OpenVPN server is running successfully!</p>
+                  <h2>Download Client Configuration</h2>
+                  <p><a href="/clients/client1/client1.ovpn" class="download-link">Download client1.ovpn</a></p>
+                  <h2>Server Information</h2>
+                  <ul>
+                      <li>Server IP: ${OpenVPNElasticIP}</li>
+                      <li>Port: ${VPNPort} (UDP)</li>
+                      <li>Client Subnet: ${ClientSubnet}</li>
+                  </ul>
+                  <h2>Instructions</h2>
+                  <ol>
+                      <li>Download the client configuration file</li>
+                      <li>Install OpenVPN client on your device</li>
+                      <li>Import the .ovpn file</li>
+                      <li>Connect to the VPN</li>
+                  </ol>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          # Configure nginx
+          systemctl enable nginx
+          systemctl start nginx
+          
+          # Wait for services to start
           sleep 10
           
-          # Configure network settings for private subnet access
-          echo "Configuring network settings..."
-          /usr/local/openvpn_as/scripts/sacli --key "vpn.client.routing.reroute_gw" --value "true" ConfigPut
-          /usr/local/openvpn_as/scripts/sacli --key "vpn.server.routing.private_network.0" --value "10.0.0.0/16" ConfigPut
-          /usr/local/openvpn_as/scripts/sacli --key "vpn.server.routing.private_access" --value "nat" ConfigPut
-          /usr/local/openvpn_as/scripts/sacli --key "vpn.daemon.0.listen.port" --value "${VPNPort}" ConfigPut
-          
-          # Restart OpenVPN to apply settings
-          echo "Restarting OpenVPN Access Server..."
-          systemctl restart openvpnas
-          
-          # Wait for service to start
-          sleep 20
-          
-          # Verify service is running
-          systemctl status openvpnas
+          # Verify OpenVPN is running
+          systemctl status openvpn-server@server
           
           # Create setup completion marker
           touch /tmp/openvpn-setup-complete
           
           # Log final status
-          echo "OpenVPN Server configuration completed at $(date)"
-          echo "Admin Web UI: https://${OpenVPNElasticIP}:943/admin"
-          echo "Client Web UI: https://${OpenVPNElasticIP}:943/"
-          echo "Default admin user: openvpn"
-          echo "Default admin password: OpenVPN123!"
+          echo "OpenVPN Community Edition setup completed at $(date)"
+          echo "Web Interface: https://${OpenVPNElasticIP}/"
+          echo "Client config: https://${OpenVPNElasticIP}/clients/client1/client1.ovpn"
           echo "Setup complete!"
       Tags:
         - Key: Name
@@ -383,7 +542,7 @@ Resources:
   PrivateTestInstance1:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      ImageId: !Sub '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
       InstanceType: t3.micro
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref OpenVPNInstanceProfile
@@ -396,10 +555,11 @@ Resources:
           set -euxo pipefail
           
           # Update system
-          dnf update -y
+          apt update -y
+          DEBIAN_FRONTEND=noninteractive apt upgrade -y
           
           # Install nginx for testing HTTP connectivity
-          dnf install -y nginx
+          DEBIAN_FRONTEND=noninteractive apt install -y nginx
           
           # Create a simple test page
           cat > /var/www/html/index.html << 'EOF'
@@ -432,7 +592,7 @@ Resources:
   PrivateTestInstance2:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      ImageId: !Sub '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
       InstanceType: t3.micro
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref OpenVPNInstanceProfile
@@ -445,10 +605,11 @@ Resources:
           set -euxo pipefail
           
           # Update system
-          dnf update -y
+          apt update -y
+          DEBIAN_FRONTEND=noninteractive apt upgrade -y
           
           # Install nginx for testing HTTP connectivity
-          dnf install -y nginx
+          DEBIAN_FRONTEND=noninteractive apt install -y nginx
           
           # Create a simple test page
           cat > /var/www/html/index.html << 'EOF'
@@ -491,21 +652,21 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-ServerIP
 
-  AdminWebUI:
-    Description: OpenVPN Admin Web Interface URL
-    Value: !Sub https://${OpenVPNElasticIP}:943/admin
+  WebInterface:
+    Description: OpenVPN Community Web Interface URL
+    Value: !Sub http://${OpenVPNElasticIP}/
 
-  ClientWebUI:
-    Description: OpenVPN Client Web Interface URL
-    Value: !Sub https://${OpenVPNElasticIP}:943/
+  ClientConfigDownload:
+    Description: Download URL for client configuration
+    Value: !Sub http://${OpenVPNElasticIP}/clients/client1/client1.ovpn
 
   SSHCommand:
     Description: SSH command to connect to the server
-    Value: !Sub ssh -i ~/.ssh/${KeyPairName}.pem ec2-user@${OpenVPNElasticIP}
+    Value: !Sub ssh -i ~/.ssh/${KeyPairName}.pem ubuntu@${OpenVPNElasticIP}
 
-  DefaultCredentials:
-    Description: Default admin credentials (CHANGE IMMEDIATELY!)
-    Value: "Username: openvpn, Password: OpenVPN123!"
+  ClientManagement:
+    Description: How to create additional client certificates
+    Value: "SSH to server and run: sudo /etc/openvpn/create-client.sh <client_name>"
 
   InstanceId:
     Description: EC2 Instance ID
@@ -541,7 +702,7 @@ Outputs:
       After connecting to VPN, test connectivity:
       1. Ping: ping ${PrivateTestInstance1.PrivateIp} or ping ${PrivateTestInstance2.PrivateIp}
       2. HTTP: curl http://${PrivateTestInstance1.PrivateIp} or curl http://${PrivateTestInstance2.PrivateIp}
-      3. SSH: ssh -i ~/.ssh/${KeyPairName}.pem ec2-user@${PrivateTestInstance1.PrivateIp}
+      3. SSH: ssh -i ~/.ssh/${KeyPairName}.pem ubuntu@${PrivateTestInstance1.PrivateIp}
       4. Browser: http://${PrivateTestInstance1.PrivateIp} or http://${PrivateTestInstance2.PrivateIp}
 
   PrivateSubnets:
