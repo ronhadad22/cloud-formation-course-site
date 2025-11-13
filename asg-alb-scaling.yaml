@@ -78,22 +78,16 @@ Parameters:
     Description: List of SSL certificate ARNs from AWS Certificate Manager for HTTPS listener (comma-separated)
     Default: arn:aws:acm:eu-west-1:050752632489:certificate/f5e7f6bb-16b7-463b-b1e7-cd1254536c47
 
-  # OpenVPN Parameters
-  EnableOpenVPN:
+  # VPN Configuration Parameters
+  VPNType:
     Type: String
-    Default: "true"
+    Default: "none"
     AllowedValues:
-      - "true"
-      - "false"
-    Description: Whether to deploy OpenVPN Server
-
-  OpenVPNServerType:
-    Type: String
-    Default: "linux-access-server"
-    AllowedValues:
-      - "linux-access-server"
-      - "windows-community"
-    Description: Choose OpenVPN server type - Linux Access Server (with web UI) or Windows Community Edition
+      - "none"
+      - "openvpn-windows"
+      - "openvpn-linux"
+      - "aws-client-vpn"
+    Description: Choose VPN type - None, OpenVPN Access Server (Windows), OpenVPN Community (Linux), or AWS Client VPN
 
   OpenVPNInstanceType:
     Type: String
@@ -132,6 +126,27 @@ Parameters:
       - x86_64
     Description: CPU architecture for ASG instances (affects AMI selection)
 
+  ClientVPNCidr:
+    Type: String
+    Default: 10.50.0.0/16
+    Description: CIDR block for Client VPN clients (must not overlap with VPC CIDR)
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2])$'
+
+  ServerCertificateArn:
+    Type: String
+    Description: ARN of the server certificate for Client VPN authentication (must be imported to ACM)
+    Default: ""
+
+  ClientCertificateArn:
+    Type: String
+    Description: ARN of the client certificate for Client VPN authentication (must be imported to ACM)
+    Default: ""
+
+  ClientVPNLogGroupName:
+    Type: String
+    Default: "/aws/clientvpn"
+    Description: CloudWatch log group name for Client VPN connection logs
+
 Mappings:
   # Linux OpenVPN Access Server AMI IDs by Region (Commercial with Web UI)
   LinuxOpenVPNAMIMap:
@@ -148,11 +163,14 @@ Mappings:
 Conditions:
   PublicRDS: !Equals [ !Ref RDSPublicAccess, "true" ]
   HasMultipleCertificates: !Not [!Equals [!Join ['', !Ref SSLCertificateArns], !Select [0, !Ref SSLCertificateArns]]]
-  DeployOpenVPN: !Equals [ !Ref EnableOpenVPN, "true" ]
+  DeployOpenVPNWindows: !Equals [ !Ref VPNType, "openvpn-windows" ]
+  DeployOpenVPNLinux: !Equals [ !Ref VPNType, "openvpn-linux" ]
+  DeployClientVPN: !Equals [ !Ref VPNType, "aws-client-vpn" ]
+  DeployAnyOpenVPN: !Or [ !Condition DeployOpenVPNWindows, !Condition DeployOpenVPNLinux ]
   UseCustomASGAMI: !Not [!Equals [!Ref ASGImageId, ""]]
   UseCustomOpenVPNAMI: !Not [!Equals [!Ref OpenVPNImageId, ""]]
-  UseLinuxAccessServer: !Equals [ !Ref OpenVPNServerType, "linux-access-server" ]
-  UseWindowsCommunity: !Equals [ !Ref OpenVPNServerType, "windows-community" ]
+  HasServerCert: !Not [!Equals [!Ref ServerCertificateArn, ""]]
+  HasClientCert: !Not [!Equals [!Ref ClientCertificateArn, ""]]
 
 Resources:
   # VPC
@@ -400,7 +418,7 @@ Resources:
   # OpenVPN Security Group
   OpenVPNSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Properties:
       GroupDescription: Security group for OpenVPN Access Server
       VpcId: !Ref MyVPC
@@ -416,7 +434,7 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: OpenVPN TCP traffic
         - !If
-          - UseLinuxAccessServer
+          - DeployOpenVPNLinux
           - IpProtocol: tcp
             FromPort: 22
             ToPort: 22
@@ -472,7 +490,7 @@ Resources:
   # OpenVPN IAM Role
   OpenVPNRole:
     Type: AWS::IAM::Role
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -490,7 +508,7 @@ Resources:
   # OpenVPN Instance Profile
   OpenVPNInstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Properties:
       Roles:
         - !Ref OpenVPNRole
@@ -498,7 +516,7 @@ Resources:
   # OpenVPN Elastic IP
   OpenVPNElasticIP:
     Type: AWS::EC2::EIP
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     DependsOn: AttachGateway
     Properties:
       Domain: vpc
@@ -509,13 +527,13 @@ Resources:
   # OpenVPN Access Server Instance
   OpenVPNAccessServer:
     Type: AWS::EC2::Instance
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Properties:
       ImageId: !If
         - UseCustomOpenVPNAMI
         - !Ref OpenVPNImageId
         - !If
-          - UseLinuxAccessServer
+          - DeployOpenVPNLinux
           - !FindInMap [LinuxOpenVPNAMIMap, !Ref "AWS::Region", AMI]
           - !Sub '{{resolve:ssm:/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base}}'
       InstanceType: !Ref OpenVPNInstanceType
@@ -526,7 +544,7 @@ Resources:
         - !Ref OpenVPNSecurityGroup
       SourceDestCheck: false
       UserData: !If
-        - UseLinuxAccessServer
+        - DeployOpenVPNLinux
         - Fn::Base64: !Sub |
             #!/bin/bash
             # OpenVPN Access Server setup
@@ -541,10 +559,77 @@ Resources:
             </powershell>
   OpenVPNEIPAssociation:
     Type: AWS::EC2::EIPAssociation
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Properties:
       InstanceId: !Ref OpenVPNAccessServer
       EIP: !Ref OpenVPNElasticIP
+
+  # Client VPN Resources
+  ClientVPNLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: DeployClientVPN
+    Properties:
+      LogGroupName: !Ref ClientVPNLogGroupName
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ClientVPN-LogGroup
+
+  ClientVPNLogStream:
+    Type: AWS::Logs::LogStream
+    Condition: DeployClientVPN
+    Properties:
+      LogGroupName: !Ref ClientVPNLogGroupName
+      LogStreamName: ClientVPNConnectionLogs
+    DependsOn: ClientVPNLogGroup
+
+  ClientVPNEndpoint:
+    Type: AWS::EC2::ClientVpnEndpoint
+    Condition: DeployClientVPN
+    Properties:
+      Description: !Sub ${AWS::StackName} Client VPN Endpoint
+      ClientCidrBlock: !Ref ClientVPNCidr
+      ServerCertificateArn: !Ref ServerCertificateArn
+      AuthenticationOptions:
+        - Type: certificate-authentication
+          MutualAuthentication:
+            ClientRootCertificateChainArn: !Ref ClientCertificateArn
+      ConnectionLogOptions:
+        Enabled: true
+        CloudwatchLogGroup: !Ref ClientVPNLogGroup
+        CloudwatchLogStream: !Ref ClientVPNLogStream
+      DnsServers:
+        - 8.8.8.8
+        - 8.8.4.4
+      SplitTunnel: true
+      VpnPort: 443
+      TransportProtocol: udp
+
+  ClientVPNTargetNetworkAssociation1:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Condition: DeployClientVPN
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVPNEndpoint
+      SubnetId: !Ref PrivateSubnet1
+
+  ClientVPNTargetNetworkAssociation2:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Condition: DeployClientVPN
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVPNEndpoint
+      SubnetId: !Ref PrivateSubnet2
+
+  ClientVPNAuthorizationRule:
+    Type: AWS::EC2::ClientVpnAuthorizationRule
+    Condition: DeployClientVPN
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVPNEndpoint
+      TargetNetworkCidr: 10.0.0.0/16
+      AuthorizeAllGroups: true
+      Description: Allow access to VPC
+
+  # Note: AWS Client VPN automatically creates routes to VPC CIDR when target networks are associated
+  # Manual routes are not needed and cause "Route already exists" errors
 
   # RDS MySQL Instance
   MyRDSInstance:
@@ -810,51 +895,111 @@ Outputs:
 
   # OpenVPN Outputs
   OpenVPNServerPublicIP:
-    Condition: DeployOpenVPN
-    Description: Public IP address of the OpenVPN Access Server
+    Condition: DeployAnyOpenVPN
+    Description: Public IP address of the OpenVPN Server
     Value: !Ref OpenVPNElasticIP
     Export:
       Name: !Sub ${AWS::StackName}-OpenVPN-ServerIP
 
   OpenVPNAdminWebInterface:
-    Condition: DeployOpenVPN
-    Description: OpenVPN Access Server Admin Web Interface URL
+    Condition: DeployOpenVPNLinux
+    Description: OpenVPN Access Server Admin Web Interface URL (Linux only)
     Value: !Sub https://${OpenVPNElasticIP}:943/admin
 
   OpenVPNClientWebInterface:
-    Condition: DeployOpenVPN
-    Description: OpenVPN Access Server Client Web Interface URL
+    Condition: DeployOpenVPNLinux
+    Description: OpenVPN Access Server Client Web Interface URL (Linux only)
     Value: !Sub https://${OpenVPNElasticIP}:943/
 
   OpenVPNAdminCredentials:
-    Condition: DeployOpenVPN
+    Condition: DeployAnyOpenVPN
     Description: Admin login credentials
     Value: !Sub |
       Username: openvpn
       Password: ${OpenVPNAdminPassword}
 
   OpenVPNRDPCommand:
-    Condition: DeployOpenVPN
+    Condition: DeployOpenVPNWindows
     Description: RDP command to connect to the Windows OpenVPN server
     Value: !Sub mstsc /v:${OpenVPNElasticIP}
 
   OpenVPNSetupInstructions:
-    Condition: DeployOpenVPN
-    Description: Setup instructions for Windows OpenVPN Server
+    Condition: DeployAnyOpenVPN
+    Description: Setup instructions for OpenVPN Server
+    Value: !If
+      - DeployOpenVPNLinux
+      - !Sub |
+          OpenVPN Access Server (Linux) is ready!
+          
+          ADMIN ACCESS:
+          1. Admin Interface: https://${OpenVPNElasticIP}:943/admin
+          2. Username: openvpn
+          3. Password: ${OpenVPNAdminPassword}
+          
+          CLIENT ACCESS:
+          1. Client Interface: https://${OpenVPNElasticIP}:943/
+          2. Download client profiles from web interface
+          3. Import .ovpn file into OpenVPN client
+          4. Connect using your credentials
+      - !Sub |
+          OpenVPN Community (Windows) is ready!
+          
+          CLIENT CONNECTION:
+          1. Connect via RDP: mstsc /v:${OpenVPNElasticIP}
+          2. Download client files from: C:\OpenVPN\client-configs\
+          3. Copy these files to your client device:
+             - client1.ovpn (main config file)
+             - ca.crt, client1.crt, client1.key, ta.key
+          4. Import client1.ovpn into your OpenVPN client
+          5. Connect using your OpenVPN client
+          
+          SERVER MANAGEMENT:
+          - Service: OpenVPNServer (running automatically)
+          - Logs: C:\OpenVPN\log\openvpn.log
+
+  # Client VPN Outputs
+  ClientVPNEndpointId:
+    Condition: DeployClientVPN
+    Description: Client VPN Endpoint ID
+    Value: !Ref ClientVPNEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-ClientVPN-EndpointId
+
+  # Note: ClientVPN DNS name is not available as CloudFormation attribute
+  # DNS name can be found in AWS Console after deployment
+
+  ClientVPNClientCidr:
+    Condition: DeployClientVPN
+    Description: Client VPN Client CIDR Block
+    Value: !Ref ClientVPNCidr
+
+  ClientVPNSetupInstructions:
+    Condition: DeployClientVPN
+    Description: Instructions for setting up AWS Client VPN
     Value: !Sub |
-      OpenVPN Server is FULLY AUTOMATED and ready to use!
+      AWS Client VPN Endpoint Setup Complete!
+      
+      CERTIFICATE SETUP (Required before first use):
+      1. Generate server and client certificates using OpenSSL or Easy-RSA
+      2. Import certificates to AWS Certificate Manager (ACM)
+      3. Update CloudFormation parameters with certificate ARNs
+      4. Redeploy the stack
       
       CLIENT CONNECTION:
-      1. Connect via RDP: mstsc /v:${OpenVPNElasticIP}
-      2. Download client files from: C:\OpenVPN\client-configs\
-      3. Copy these files to your client device:
-         - client1.ovpn (main config file)
-         - ca.crt, client1.crt, client1.key, ta.key
-      4. Import client1.ovpn into your OpenVPN client
-      5. Connect using your OpenVPN client
+      1. Download AWS VPN Client from: https://aws.amazon.com/vpn/client-vpn-download/
+      2. In AWS Console, go to VPC → Client VPN Endpoints
+      3. Select endpoint: ${ClientVPNEndpoint}
+      4. Click "Download Client Configuration"
+      5. Import the .ovpn file into AWS VPN Client
+      6. Connect using your client certificate
       
-      SERVER MANAGEMENT:
-      - Service: OpenVPNServer (running automatically)
-      - Logs: C:\OpenVPN\log\openvpn.log
-      - Status: C:\OpenVPN\log\openvpn-status.log
-      - Setup log: C:\openvpn-setup.log
+      ENDPOINT DETAILS:
+      - Endpoint ID: ${ClientVPNEndpoint}
+      - DNS Name: Check AWS Console → VPC → Client VPN Endpoints
+      - Client CIDR: ${ClientVPNCidr}
+      - VPC Access: 10.0.0.0/16
+      
+      TROUBLESHOOTING:
+      - Check CloudWatch logs: ${ClientVPNLogGroupName}
+      - Verify certificates are valid and imported to ACM
+      - Ensure client certificate matches the one specified in parameters

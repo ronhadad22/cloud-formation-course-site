@@ -1,8 +1,8 @@
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: jenkins-ebs-sc
-provisioner: ebs.csi.aws.com
+  name: jenkins-ebs-sc-auto-mode
+provisioner: ebs.csi.eks.amazonaws.com
 volumeBindingMode: WaitForFirstConsumer
 parameters:
   type: gp3    # You can use gp2 or gp3
