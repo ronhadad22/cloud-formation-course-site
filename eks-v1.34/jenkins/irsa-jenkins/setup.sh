@@ -4,7 +4,7 @@
 # Run with: ./setup.sh
 
 PROFILE="int-profile"
-REGION="us-east-2"
+REGION="us-east-1"
 CLUSTER_NAME="student-eks-cluster"
 ACCOUNT_ID="950555670656"
 
