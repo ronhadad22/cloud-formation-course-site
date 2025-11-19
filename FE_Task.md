@@ -4,20 +4,31 @@
 - AWS account with CLI configured
 - Node.js installed
 
-## Step 1: Request Your Domains & SSL Certificate
-**Email your lecturer FIRST to get domains and SSL certificate:**
-```
-Subject: Need subdomains and SSL certificate
+## Step 1: Create SSL Certificate
 
-Hi,
-I need two subdomains for my project:
-- Frontend: [your-name]-fe.iitc-course.com
-- Backend: [your-name]-be.iitc-course.com
+**IMPORTANT: You must create your SSL certificate in us-east-1 region for CloudFront!**
 
-Please also provide the SSL certificate ARN for these domains.
-
-Thanks!
-```
+1. Go to **AWS Certificate Manager** in **us-east-1** region
+2. Click **Request a certificate**
+3. Choose **Request a public certificate**
+4. Add domain names:
+   - `[your-name]-fe.iitc-course.com` (replace [your-name] with your actual name)
+   - `*.iitc-course.com` (wildcard for subdomains)
+5. Choose **DNS validation**
+6. Click **Request**
+7. **Email your lecturer** to validate the certificate:
+   ```
+   Subject: Please validate my SSL certificate
+   
+   Hi,
+   I created an SSL certificate for [your-name]-fe.iitc-course.com
+   Please validate the DNS records in Route53.
+   
+   Certificate ARN: [copy the ARN from ACM console]
+   
+   Thanks!
+   ```
+8. Wait for certificate status to become **Issued**
 
 ## Step 2: Deploy Infrastructure
 
@@ -27,7 +38,7 @@ Thanks!
    - **Stack Name**: `your-name-frontend`
    - **DomainName**: `iitc-course.com`
    - **SubdomainName**: `your-name-fe`
-   - **SSLCertificateArn**: `[SSL_CERT_ARN_FROM_LECTURER]`
+   - **SSLCertificateArn**: `[YOUR_CERTIFICATE_ARN_FROM_STEP_1]`
    - **BackendAPIURL**: `https://your-name-be.iitc-course.com`
    - **Environment**: `production`
 4. Click Create Stack and wait
