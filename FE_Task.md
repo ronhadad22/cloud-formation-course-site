@@ -30,6 +30,11 @@
    ```
 8. Wait for certificate status to become **Issued**
 
+**Alternative: Skip Custom Domain**
+If you want to skip custom domains and just use CloudFront URL:
+- Leave **DomainName** and **SSLCertificateArn** empty
+- Your site will be available at a CloudFront URL like `https://d1234567890.cloudfront.net`
+
 ## Step 2: Deploy Infrastructure
 
 1. Go to AWS CloudFormation Console
@@ -93,4 +98,25 @@ Thanks!
 Your site will be live at `https://your-name-fe.iitc-course.com` after lecturer sets up DNS.
 
 ---
-**Problems?** Contact your lecturer.
+
+## Troubleshooting
+
+### SSL Certificate Issues
+- **Certificate pending validation**: Email lecturer with certificate ARN
+- **Wrong region**: Certificate MUST be in us-east-1 for CloudFront
+- **Certificate not found**: Copy the full ARN from ACM console
+
+### CloudFormation Issues
+- **Bucket name error**: Use a shorter stack name
+- **Stack creation failed**: Delete stack and try again with different name
+
+### Common Mistakes
+- ✅ **Certificate region**: Must be us-east-1
+- ✅ **Stack name**: Use your actual name (e.g., `john-frontend`)
+- ✅ **Subdomain**: Use your name (e.g., `john-fe`)
+- ✅ **Wait for certificate**: Must be "Issued" status before deploying
+
+**Still having problems?** Contact your lecturer with:
+- Your stack name
+- Error message (screenshot)
+- Certificate ARN
