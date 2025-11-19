@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Simple frontend deployment with S3 bucket and CloudFront for React applications
+Description: Simple frontend deployment with S3 bucket and CloudFront for React applications (Student-friendly - No hosted zone required)
 
 Parameters:
   DomainName:
@@ -149,18 +149,18 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
-  # Route 53 Record (if domain name provided)
-  DNSRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasDomainName
-    Properties:
-      HostedZoneName: !Sub "${DomainName}."
-      Name: !Sub "${SubdomainName}.${DomainName}"
-      Type: A
-      AliasTarget:
-        DNSName: !GetAtt CloudFrontDistribution.DomainName
-        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)
-        EvaluateTargetHealth: false
+  # Route 53 Record (DISABLED - Students don't have hosted zones)
+  # DNSRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Condition: HasDomainName
+  #   Properties:
+  #     HostedZoneName: !Sub "${DomainName}."
+  #     Name: !Sub "${SubdomainName}.${DomainName}"
+  #     Type: A
+  #     AliasTarget:
+  #       DNSName: !GetAtt CloudFrontDistribution.DomainName
+  #       HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (global)
+  #       EvaluateTargetHealth: false
 
 Outputs:
   WebsiteBucketName:
@@ -222,9 +222,9 @@ Outputs:
       5. Upload: aws s3 sync ./build s3://${WebsiteBucket} --delete
       6. Invalidate: aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"
       
-      ACCESS:
+      ACCESS YOUR WEBSITE:
       - CloudFront URL: https://${CloudFrontDistribution.DomainName}
-      - Custom Domain: https://${SubdomainName}.${DomainName} (if configured)
+      - NOTE: Custom domains require hosted zones (not included for students)
       
       FEATURES:
       - Single Page Application (SPA) support with error redirects
