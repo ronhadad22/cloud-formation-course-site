@@ -41,12 +41,7 @@ Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 
-        - "${DomainPrefix}-frontend-${Environment}-${AWS::AccountId}"
-        - DomainPrefix: !If 
-          - HasDomainName
-          - !Sub "${SubdomainName}.${DomainName}"
-          - "react-app"
+      BucketName: !Sub "frontend-${Environment}-${AWS::StackName}-${AWS::AccountId}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
