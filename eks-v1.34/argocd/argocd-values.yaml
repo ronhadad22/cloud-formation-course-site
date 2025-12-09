@@ -1,7 +1,7 @@
 global:
-  # Use LoadBalancer for easy access (or change to NodePort/ClusterIP)
+  # Use ClusterIP for port forwarding access
   service:
-    type: LoadBalancer
+    type: ClusterIP
 
 server:
   # Enable insecure mode for easier setup (disable in production)
@@ -10,7 +10,7 @@ server:
   
   # Service configuration
   service:
-    type: LoadBalancer
+    type: ClusterIP
     
   # Resource requests for EKS Auto Mode
   resources:
