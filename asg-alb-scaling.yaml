@@ -38,15 +38,7 @@ Parameters:
     Description: Desired number of instances in ASG
 
   # RDS Parameters
-  DBName:
-    Type: String
-    Default: appdb
-    Description: The name of the MySQL database to create
   # Credentials provided via Secrets Manager (see DBSecretArn)
-  DBAllocatedStorage:
-    Type: Number
-    Default: 20
-    Description: The size of the database (GiB)
   DBInstanceClass:
     Type: String
     Default: db.t4g.micro
@@ -113,11 +105,6 @@ Parameters:
     Default: ""
     ConstraintDescription: Must be a valid OpenVPN Access Server AMI ID for your region
 
-  ASGImageId:
-    Type: String
-    Description: AMI ID for ASG instances (leave empty to use latest Amazon Linux 2023 ARM64)
-    Default: ""
-
   ASGArchitecture:
     Type: String
     Default: arm64
@@ -142,11 +129,6 @@ Parameters:
     Description: ARN of the client certificate for Client VPN authentication (must be imported to ACM)
     Default: ""
 
-  ClientVPNLogGroupName:
-    Type: String
-    Default: "/aws/clientvpn"
-    Description: CloudWatch log group name for Client VPN connection logs
-
 Mappings:
   # Linux OpenVPN Access Server AMI IDs by Region (Commercial with Web UI)
   LinuxOpenVPNAMIMap:
@@ -167,7 +149,6 @@ Conditions:
   DeployOpenVPNLinux: !Equals [ !Ref VPNType, "openvpn-linux" ]
   DeployClientVPN: !Equals [ !Ref VPNType, "aws-client-vpn" ]
   DeployAnyOpenVPN: !Or [ !Condition DeployOpenVPNWindows, !Condition DeployOpenVPNLinux ]
-  UseCustomASGAMI: !Not [!Equals [!Ref ASGImageId, ""]]
   UseCustomOpenVPNAMI: !Not [!Equals [!Ref OpenVPNImageId, ""]]
   HasServerCert: !Not [!Equals [!Ref ServerCertificateArn, ""]]
   HasClientCert: !Not [!Equals [!Ref ClientCertificateArn, ""]]
@@ -569,7 +550,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Condition: DeployClientVPN
     Properties:
-      LogGroupName: !Ref ClientVPNLogGroupName
+      LogGroupName: /aws/clientvpn
       RetentionInDays: 30
       Tags:
         - Key: Name
@@ -579,7 +560,7 @@ Resources:
     Type: AWS::Logs::LogStream
     Condition: DeployClientVPN
     Properties:
-      LogGroupName: !Ref ClientVPNLogGroupName
+      LogGroupName: /aws/clientvpn
       LogStreamName: ClientVPNConnectionLogs
     DependsOn: ClientVPNLogGroup
 
@@ -637,13 +618,13 @@ Resources:
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      AllocatedStorage: !Ref DBAllocatedStorage
+      AllocatedStorage: 20
       DBInstanceClass: !Ref DBInstanceClass
       Engine: mysql
-      EngineVersion: '8.0'
+      EngineVersion: '8.0.40'
       MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecretArn}:SecretString:username}}'
       MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecretArn}:SecretString:password}}'
-      DBName: !Ref DBName
+      DBName: appdb
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
       DBSubnetGroupName: !If [ PublicRDS, !Ref DBPublicSubnetGroup, !Ref DBSubnetGroup ]
@@ -660,10 +641,7 @@ Resources:
     Properties:
       LaunchTemplateName: WebServerLaunchTemplate
       LaunchTemplateData:
-        ImageId: !If
-          - UseCustomASGAMI
-          - !Ref ASGImageId
-          - !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${ASGArchitecture}}}'
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${ASGArchitecture}}}'
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyPairName
         IamInstanceProfile:
@@ -1000,6 +978,6 @@ Outputs:
       - VPC Access: 10.0.0.0/16
       
       TROUBLESHOOTING:
-      - Check CloudWatch logs: ${ClientVPNLogGroupName}
+      - Check CloudWatch logs: /aws/clientvpn
       - Verify certificates are valid and imported to ACM
       - Ensure client certificate matches the one specified in parameters
