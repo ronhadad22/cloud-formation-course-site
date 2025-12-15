@@ -4,8 +4,87 @@ persistence:
   accessMode: "ReadWriteOnce"
   size: "8Gi"
 
-# Add toleration for system nodes
-tolerations:
-  - key: "CriticalAddonsOnly"
-    operator: "Exists"
-    effect: "NoSchedule"
+# # Add toleration for system nodes
+# tolerations:
+#   - key: "CriticalAddonsOnly"
+#     operator: "Exists"
+#     effect: "NoSchedule"
+
+# IRSA Configuration for ECR access
+serviceAccount:
+  create: true
+  name: jenkins-agent
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::950555670656:role/JenkinsECRRole
+
+# Agent configuration for ECR access
+agent:
+  serviceAccount: jenkins-agent
+
+# Use admin password from AWS Secrets Manager
+controller:
+  admin:
+    existingSecret: jenkins-secrets
+    createSecret: false
+  
+  # Mount jenkins-secrets directly without prefix
+  sidecars:
+    additionalSidecarContainers: []
+  
+  # Mount the secret as environment variables for JCasC
+  additionalExistingSecrets:
+    - name: jenkins-secrets
+      keyName: github-username
+    - name: jenkins-secrets
+      keyName: github-password
+  
+  # Custom volume to mount secret with correct key names
+  customInitContainers: []
+  
+  # Additional plugins for GitHub integration
+  additionalPlugins:
+    - github:latest
+    - github-branch-source:latest
+  
+  # Jenkins Configuration as Code
+  JCasC:
+    defaultConfig: false
+    configScripts:
+      jenkins-config: |
+        jenkins:
+          authorizationStrategy:
+            loggedInUsersCanDoAnything:
+              allowAnonymousRead: false
+          securityRealm:
+            local:
+              allowsSignup: false
+              users:
+              - id: "admin"
+                password: "64258951"
+          mode: NORMAL
+          numExecutors: 0
+          clouds:
+          - kubernetes:
+              name: "kubernetes"
+              serverUrl: "https://kubernetes.default"
+              namespace: "jenkins"
+              jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+              jenkinsTunnel: "jenkins-agent.jenkins.svc.cluster.local:50000"
+              templates:
+                - name: "default"
+                  namespace: "jenkins"
+                  serviceAccount: "jenkins-agent"
+                  containers:
+                  - name: "jnlp"
+                    image: "jenkins/inbound-agent:latest"
+                    workingDir: "/home/jenkins/agent"
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: "github-credentials"
+                      username: "${jenkins-secrets-github-username}"
+                      password: "${jenkins-secrets-github-password}"
+                      description: "GitHub Credentials"

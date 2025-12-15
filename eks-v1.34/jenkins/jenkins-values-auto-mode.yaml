@@ -9,3 +9,14 @@ tolerations:
   - key: "CriticalAddonsOnly"
     operator: "Exists"
     effect: "NoSchedule"
+
+# IRSA Configuration for ECR access
+serviceAccount:
+  create: true
+  name: jenkins-agent
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::950555670656:role/JenkinsECRRole
+
+# Agent configuration for ECR access
+agent:
+  serviceAccount: jenkins-agent

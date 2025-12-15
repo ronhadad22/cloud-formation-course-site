@@ -1,0 +1,3 @@
+persistence:
+  # -- Enable the use of a Jenkins PVC
+  enabled: false

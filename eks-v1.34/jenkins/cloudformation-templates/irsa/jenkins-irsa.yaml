@@ -77,20 +77,29 @@ Resources:
   # IAM Role for Service Account
   JenkinsECRRole:
     Type: AWS::IAM::Role
+    DependsOn: GetOIDCProviderID
     Properties:
       RoleName: !Ref RoleName
       Description: IAM role for Jenkins agents to access ECR via IRSA
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${ClusterRegion}.amazonaws.com/id/${OIDCProviderID}'
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                !Sub 'oidc.eks.${ClusterRegion}.amazonaws.com/id/${OIDCProviderID}:sub': !Sub 'system:serviceaccount:${ServiceAccountNamespace}:${ServiceAccountName}'
-                !Sub 'oidc.eks.${ClusterRegion}.amazonaws.com/id/${OIDCProviderID}:aud': 'sts.amazonaws.com'
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${ClusterRegion}.amazonaws.com/id/${GetOIDCProviderID.OIDCProviderID}"
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "oidc.eks.${ClusterRegion}.amazonaws.com/id/${GetOIDCProviderID.OIDCProviderID}:sub": "system:serviceaccount:${ServiceAccountNamespace}:${ServiceAccountName}",
+                  "oidc.eks.${ClusterRegion}.amazonaws.com/id/${GetOIDCProviderID.OIDCProviderID}:aud": "sts.amazonaws.com"
+                }
+              }
+            }
+          ]
+        }
       ManagedPolicyArns:
         - !Ref JenkinsECRPolicy
       Tags:

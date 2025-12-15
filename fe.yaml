@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Static website hosting using S3 + CloudFront (OAC)
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: "int-course-site-${AWS::AccountId}"
+
+Resources:
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "OAC-${BucketName}"
+        Description: "OAC for S3 static site"
+        SigningProtocol: sigv4
+        SigningBehavior: always
+        OriginAccessControlOriginType: s3
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !Ref CloudFrontOAC
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          TargetOriginId: S3Origin
+        PriceClass: PriceClass_100
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "s3:GetObject"
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+Outputs:
+  WebsiteURL:
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"

@@ -4,7 +4,7 @@
 
 set -e
 
-REGION="us-east-1"
+REGION="us-east-2"
 PROFILE="int-profile"
 
 # Colors for output
@@ -54,7 +54,7 @@ aws secretsmanager create-secret \
 aws secretsmanager create-secret \
     --name "jenkins/ecr" \
     --description "Jenkins ECR credentials" \
-    --secret-string '{"registry":"950555670656.dkr.ecr.us-east-1.amazonaws.com","token":"auto-generated"}' \
+    --secret-string '{"registry":"950555670656.dkr.ecr.us-east-2.amazonaws.com","token":"auto-generated"}' \
     --region $REGION \
     --profile $PROFILE 2>/dev/null || echo "Secret jenkins/ecr already exists"
 

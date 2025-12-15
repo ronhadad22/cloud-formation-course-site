@@ -7,12 +7,12 @@ set -e
 # Configuration
 STACK_NAME="eso-irsa-stack"
 TEMPLATE_FILE="eso-irsa.yaml"
-REGION="us-east-1"
+REGION="us-east-2"
 PROFILE="int-profile"
 
 # Parameters
 CLUSTER_NAME="student-eks-cluster"
-CLUSTER_REGION="us-east-1"
+CLUSTER_REGION="us-east-2"
 SERVICE_ACCOUNT_NAME="external-secrets"
 SERVICE_ACCOUNT_NAMESPACE="external-secrets-system"
 ROLE_NAME="ExternalSecretsOperatorRole"
