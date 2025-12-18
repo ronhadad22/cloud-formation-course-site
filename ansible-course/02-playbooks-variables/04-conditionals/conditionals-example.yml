@@ -1,0 +1,159 @@
+---
+- name: Conditionals Examples
+  hosts: all
+  become: yes
+  
+  vars:
+    env: production
+    enable_monitoring: true
+    max_memory_mb: 4096
+  
+  tasks:
+    # Simple when condition
+    - name: Install nginx on Debian systems
+      apt:
+        name: nginx
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    - name: Install nginx on RedHat systems
+      yum:
+        name: nginx
+        state: present
+      when: ansible_os_family == "RedHat"
+    
+    # Multiple conditions with 'and'
+    - name: Install package only on production Ubuntu servers
+      apt:
+        name: monitoring-agent
+        state: present
+      when:
+        - ansible_distribution == "Ubuntu"
+        - env == "production"
+    
+    # Multiple conditions with 'or'
+    - name: Install package on Ubuntu or Debian
+      apt:
+        name: common-package
+        state: present
+      when: ansible_distribution == "Ubuntu" or ansible_distribution == "Debian"
+    
+    # Using 'in' operator
+    - name: Task for specific hosts
+      debug:
+        msg: "This is a web server"
+      when: inventory_hostname in groups['webservers']
+    
+    # Checking if variable is defined
+    - name: Use variable if defined
+      debug:
+        msg: "Database host is {{ db_host }}"
+      when: db_host is defined
+    
+    - name: Task when variable is not defined
+      debug:
+        msg: "Database host not configured"
+      when: db_host is not defined
+    
+    # Boolean variable check
+    - name: Enable monitoring
+      debug:
+        msg: "Monitoring is enabled"
+      when: enable_monitoring
+    
+    - name: Skip when boolean is false
+      debug:
+        msg: "This won't run"
+      when: not enable_monitoring
+    
+    # Numeric comparisons
+    - name: Check if enough memory
+      debug:
+        msg: "System has sufficient memory"
+      when: ansible_memtotal_mb >= max_memory_mb
+    
+    - name: Warning for low memory
+      debug:
+        msg: "WARNING: Low memory detected"
+      when: ansible_memtotal_mb < 2048
+    
+    # String matching with regex
+    - name: Check if hostname matches pattern
+      debug:
+        msg: "This is a production server"
+      when: inventory_hostname is match("prod-.*")
+    
+    # Check command result
+    - name: Check if file exists
+      stat:
+        path: /etc/myapp/config.yml
+      register: config_file
+    
+    - name: Task only if file exists
+      debug:
+        msg: "Config file found"
+      when: config_file.stat.exists
+    
+    # Failed_when - Define custom failure conditions
+    - name: Check disk space
+      shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      changed_when: false
+      failed_when: disk_usage.stdout | int > 90
+    
+    # Changed_when - Define when task should report as changed
+    - name: Check service status
+      command: systemctl is-active nginx
+      register: nginx_status
+      changed_when: false
+      failed_when: false
+    
+    - name: Custom changed condition
+      command: echo "Configuration updated"
+      changed_when: "'updated' in command_result.stdout"
+      register: command_result
+    
+    # Complex conditionals
+    - name: Complex condition example
+      debug:
+        msg: "All conditions met"
+      when:
+        - ansible_os_family == "Debian"
+        - ansible_distribution_major_version | int >= 20
+        - env in ['production', 'staging']
+        - enable_monitoring | bool
+    
+    # Conditional with loop
+    - name: Install packages conditionally
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - nginx
+        - postgresql
+        - redis
+      when:
+        - ansible_os_family == "Debian"
+        - item != "postgresql" or "'databases' in group_names"
+    
+    # Using facts in conditions
+    - name: Task for systems with multiple CPUs
+      debug:
+        msg: "Multi-core system detected: {{ ansible_processor_vcpus }} cores"
+      when: ansible_processor_vcpus > 1
+    
+    # Conditional block
+    - name: Production-only tasks
+      block:
+        - name: Install production packages
+          apt:
+            name:
+              - monitoring-agent
+              - backup-client
+            state: present
+        
+        - name: Configure production settings
+          debug:
+            msg: "Configuring production environment"
+      
+      when: env == "production"

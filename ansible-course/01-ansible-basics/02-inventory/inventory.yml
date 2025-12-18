@@ -1,0 +1,67 @@
+# Static Inventory File - YAML Format
+# Alternative to INI format, more structured and readable
+
+all:
+  children:
+    # Production Environment
+    production:
+      children:
+        webservers:
+          hosts:
+            web1.example.com:
+              ansible_host: 192.168.1.10
+            web2.example.com:
+              ansible_host: 192.168.1.11
+            web3.example.com:
+              ansible_host: 192.168.1.12
+          vars:
+            http_port: 80
+            https_port: 443
+            max_clients: 200
+        
+        databases:
+          hosts:
+            db1.example.com:
+              ansible_host: 192.168.1.20
+              ansible_port: 22
+            db2.example.com:
+              ansible_host: 192.168.1.21
+              ansible_port: 22
+          vars:
+            db_port: 5432
+            db_engine: postgresql
+        
+        loadbalancers:
+          hosts:
+            lb1.example.com:
+              ansible_host: 192.168.1.30
+        
+        appservers:
+          hosts:
+            app1.example.com:
+              ansible_host: 192.168.1.40
+            app2.example.com:
+              ansible_host: 192.168.1.41
+      
+      vars:
+        env: production
+        monitoring_enabled: true
+        backup_enabled: true
+    
+    # Development Environment
+    development:
+      hosts:
+        dev1.example.com:
+          ansible_host: 192.168.2.10
+        dev2.example.com:
+          ansible_host: 192.168.2.11
+      vars:
+        env: development
+        monitoring_enabled: false
+        backup_enabled: false
+  
+  # Global variables for all hosts
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+    ansible_python_interpreter: /usr/bin/python3

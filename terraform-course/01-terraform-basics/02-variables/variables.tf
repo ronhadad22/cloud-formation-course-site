@@ -17,7 +17,7 @@ variable "bucket_name" {
 variable "enable_versioning" {
   description = "Enable versioning on the S3 bucket"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "common_tags" {

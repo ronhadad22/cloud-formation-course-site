@@ -1,0 +1,200 @@
+---
+- name: Asynchronous and Parallel Execution
+  hosts: all
+  become: yes
+  
+  tasks:
+    # Synchronous task (default)
+    - name: Regular synchronous task
+      command: sleep 5
+      
+    # Asynchronous task with polling
+    - name: Long running task (async with polling)
+      command: /usr/bin/long_running_script.sh
+      async: 300  # Maximum runtime in seconds
+      poll: 10    # Check status every 10 seconds
+      register: long_task
+    
+    # Fire and forget (no polling)
+    - name: Fire and forget task
+      command: /usr/bin/background_job.sh
+      async: 3600
+      poll: 0
+      register: fire_forget
+    
+    # Check on fire-and-forget task later
+    - name: Do other work
+      debug:
+        msg: "Doing other tasks while background job runs"
+    
+    - name: Check on background job
+      async_status:
+        jid: "{{ fire_forget.ansible_job_id }}"
+      register: job_result
+      until: job_result.finished
+      retries: 30
+      delay: 10
+    
+    # Multiple async tasks
+    - name: Start multiple async tasks
+      command: "sleep {{ item }}"
+      async: 60
+      poll: 0
+      loop:
+        - 10
+        - 15
+        - 20
+      register: async_tasks
+    
+    - name: Wait for all async tasks to complete
+      async_status:
+        jid: "{{ item.ansible_job_id }}"
+      loop: "{{ async_tasks.results }}"
+      register: async_results
+      until: async_results.finished
+      retries: 30
+      delay: 2
+
+---
+- name: Parallel Execution Control
+  hosts: webservers
+  become: yes
+  serial: 2  # Process 2 hosts at a time
+  
+  tasks:
+    - name: Rolling update
+      apt:
+        name: nginx
+        state: latest
+      notify: Restart nginx
+  
+  handlers:
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+---
+- name: Serial with Percentage
+  hosts: all
+  become: yes
+  serial: "25%"  # Process 25% of hosts at a time
+  
+  tasks:
+    - name: Update application
+      git:
+        repo: https://github.com/example/app.git
+        dest: /opt/myapp
+        version: main
+
+---
+- name: Multiple Serial Batches
+  hosts: all
+  become: yes
+  serial:
+    - 1      # First host
+    - 25%    # Then 25% of remaining
+    - 100%   # Then all remaining
+  
+  tasks:
+    - name: Deploy new version
+      copy:
+        src: app.tar.gz
+        dest: /opt/app.tar.gz
+
+---
+- name: Throttle Example
+  hosts: all
+  become: yes
+  
+  tasks:
+    # Limit concurrent execution
+    - name: API calls (throttled)
+      uri:
+        url: "https://api.example.com/update"
+        method: POST
+      throttle: 5  # Max 5 hosts at once
+
+---
+- name: Max Fail Percentage
+  hosts: all
+  become: yes
+  max_fail_percentage: 20  # Stop if more than 20% fail
+  
+  tasks:
+    - name: Critical deployment
+      command: /usr/local/bin/deploy.sh
+
+---
+- name: Forks Configuration
+  hosts: all
+  become: yes
+  # Set in ansible.cfg or command line: ansible-playbook -f 10
+  
+  tasks:
+    - name: Parallel package installation
+      apt:
+        name: nginx
+        state: present
+
+---
+- name: Run Once
+  hosts: all
+  
+  tasks:
+    # Run on first host only
+    - name: Database migration
+      command: /usr/local/bin/migrate.sh
+      run_once: true
+    
+    # Run on one host per group
+    - name: Group-specific task
+      debug:
+        msg: "Running on {{ inventory_hostname }}"
+      run_once: true
+      delegate_to: "{{ groups['webservers'][0] }}"
+
+---
+- name: Delegation
+  hosts: webservers
+  
+  tasks:
+    # Run task on different host
+    - name: Update load balancer
+      command: /usr/local/bin/update_lb.sh
+      delegate_to: loadbalancer.example.com
+    
+    # Run locally on control node
+    - name: Generate report
+      command: /usr/local/bin/generate_report.sh
+      delegate_to: localhost
+      run_once: true
+
+---
+- name: Optimized Playbook
+  hosts: all
+  gather_facts: no  # Skip fact gathering for speed
+  
+  tasks:
+    - name: Gather minimal facts
+      setup:
+        gather_subset:
+          - network
+          - virtual
+      when: facts_needed | default(false)
+    
+    - name: Fast task execution
+      command: echo "Optimized"
+      changed_when: false
+
+---
+# Performance Tips:
+# 
+# 1. Use async for long-running tasks
+# 2. Increase forks for more parallelism
+# 3. Use serial for rolling updates
+# 4. Enable pipelining in ansible.cfg
+# 5. Disable fact gathering when not needed
+# 6. Use throttle for rate-limited operations
+# 7. Implement proper error handling
+# 8. Use strategy plugins (free, linear, debug)

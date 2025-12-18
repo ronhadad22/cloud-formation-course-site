@@ -1,9 +1,8 @@
 terraform {
   backend "s3" {
-    bucket         = "terraform-remote-state-demo"
+    bucket         = "int-course-terraform-bucket-class"
     key            = "advanced-deployments/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "us-east-2"
     encrypt        = true
-    dynamodb_table = "terraform-state-locks"
   }
 }

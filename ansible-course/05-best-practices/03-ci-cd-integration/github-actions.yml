@@ -1,0 +1,157 @@
+# GitHub Actions workflow for Ansible
+# .github/workflows/ansible-ci.yml
+
+name: Ansible CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    name: Lint Ansible Code
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible ansible-lint yamllint
+      
+      - name: Run yamllint
+        run: yamllint .
+      
+      - name: Run ansible-lint
+        run: ansible-lint playbooks/
+
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Ansible
+        run: pip install ansible
+      
+      - name: Syntax check playbooks
+        run: |
+          ansible-playbook playbooks/site.yml --syntax-check
+
+  molecule-test:
+    name: Molecule Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install molecule molecule-docker ansible
+      
+      - name: Run Molecule tests
+        run: |
+          cd roles/webserver
+          molecule test
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [lint, syntax-check, molecule-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Ansible
+        run: pip install ansible
+      
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy to staging
+        env:
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+        run: |
+          echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass
+          ansible-playbook -i inventory/staging/hosts.yml \
+            playbooks/site.yml \
+            --vault-password-file .vault_pass
+          rm .vault_pass
+
+  deploy-production:
+    name: Deploy to Production
+    needs: [lint, syntax-check, molecule-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Ansible
+        run: pip install ansible
+      
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy to production
+        env:
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+        run: |
+          echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass
+          ansible-playbook -i inventory/production/hosts.yml \
+            playbooks/site.yml \
+            --vault-password-file .vault_pass \
+            --check
+          ansible-playbook -i inventory/production/hosts.yml \
+            playbooks/site.yml \
+            --vault-password-file .vault_pass
+          rm .vault_pass
+      
+      - name: Notify deployment
+        if: success()
+        run: |
+          echo "Production deployment successful!"

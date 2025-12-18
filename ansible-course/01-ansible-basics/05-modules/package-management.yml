@@ -1,0 +1,80 @@
+---
+- name: Package Management Examples
+  hosts: all
+  become: yes
+  
+  tasks:
+    # APT Module (Debian/Ubuntu)
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Install single package with apt
+      apt:
+        name: vim
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    - name: Install multiple packages with apt
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - htop
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    - name: Install specific version
+      apt:
+        name: nginx=1.18.0-0ubuntu1
+        state: present
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+    
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+      tags:
+        - never
+        - upgrade
+    
+    - name: Remove package
+      apt:
+        name: apache2
+        state: absent
+        purge: yes
+      when: ansible_os_family == "Debian"
+    
+    # YUM Module (RHEL/CentOS 7)
+    - name: Install package with yum
+      yum:
+        name: nginx
+        state: present
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7"
+    
+    - name: Install multiple packages with yum
+      yum:
+        name:
+          - git
+          - curl
+          - wget
+        state: present
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7"
+    
+    # DNF Module (RHEL/CentOS 8+)
+    - name: Install package with dnf
+      dnf:
+        name: nginx
+        state: present
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int >= 8
+    
+    - name: Install package from specific repository
+      dnf:
+        name: nginx
+        state: present
+        enablerepo: epel
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int >= 8
