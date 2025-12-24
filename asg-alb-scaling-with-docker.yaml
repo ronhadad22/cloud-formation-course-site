@@ -570,7 +570,7 @@ Resources:
     Properties:
       Description: !Sub ${AWS::StackName} Client VPN Endpoint
       ClientCidrBlock: !Ref ClientVPNCidr
-      VPNServerCertificateArn: !Ref VPNServerCertificateArn
+      ServerCertificateArn: !Ref VPNServerCertificateArn
       AuthenticationOptions:
         - Type: certificate-authentication
           MutualAuthentication:
