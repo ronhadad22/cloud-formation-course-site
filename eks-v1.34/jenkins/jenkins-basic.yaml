@@ -1,0 +1,21 @@
+persistence:
+  enabled: true
+  storageClass: "jenkins-ebs-sc"
+  accessMode: "ReadWriteOnce"
+  size: "8Gi"
+
+controller:
+  admin:
+    password: "admin123"
+  
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  
+  installPlugins: []
+  
+  initializeOnce: true

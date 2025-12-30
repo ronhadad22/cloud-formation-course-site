@@ -120,14 +120,22 @@ inputs = {
 }
 ```
 
-### Run-All Commands
+### Stack Commands (Terragrunt v0.96.0+)
 
 Deploy everything at once:
 ```bash
 # From 02-modules directory
-terragrunt run-all plan
-terragrunt run-all apply
+terragrunt stack run plan
+terragrunt stack run apply
+
+# With auto-approve
+terragrunt stack run apply --auto-approve
+
+# Destroy everything (in reverse order)
+terragrunt stack run destroy
 ```
+
+**Note**: The old `run-all` syntax is deprecated. Use `stack run` instead.
 
 Terragrunt automatically determines the correct order based on dependencies!
 

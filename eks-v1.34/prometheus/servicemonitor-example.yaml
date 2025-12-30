@@ -1,0 +1,82 @@
+# Example ServiceMonitor for monitoring your custom application
+# This tells Prometheus to scrape metrics from your application
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-app-monitor
+  namespace: monitoring
+  labels:
+    release: prometheus  # Important: must match Prometheus release name
+spec:
+  # Select which services to monitor
+  selector:
+    matchLabels:
+      app: my-app
+  
+  # Which namespaces to look for services
+  namespaceSelector:
+    matchNames:
+    - default
+    - production
+  
+  # Endpoint configuration
+  endpoints:
+  - port: metrics        # Name of the port in your service
+    interval: 30s        # How often to scrape
+    path: /metrics       # Metrics endpoint path
+    scheme: http
+    
+    # Optional: relabeling
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: pod
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+
+---
+# Example Service that exposes metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app
+  namespace: default
+  labels:
+    app: my-app
+spec:
+  selector:
+    app: my-app
+  ports:
+  - name: metrics      # Must match ServiceMonitor port name
+    port: 9090
+    targetPort: 9090
+  - name: http
+    port: 80
+    targetPort: 8080
+
+---
+# Example Deployment with metrics endpoint
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: app
+        image: my-app:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        # Your app should expose Prometheus metrics on /metrics endpoint

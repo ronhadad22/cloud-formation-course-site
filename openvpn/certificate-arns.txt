@@ -5,5 +5,5 @@ SERVER_CERTIFICATE_ARN=arn:aws:acm:us-east-1:050752632489:certificate/8a121b4b-6
 CLIENT_CERTIFICATE_ARN=arn:aws:acm:us-east-1:050752632489:certificate/66f76917-fb2c-423f-9368-b5f464e7decd
 
 # Use these values in your CloudFormation parameters:
-# ServerCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/8a121b4b-619f-4d0e-91b8-912effcc082c
-# ClientCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/66f76917-fb2c-423f-9368-b5f464e7decd
+# VPNServerCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/8a121b4b-619f-4d0e-91b8-912effcc082c
+# VPNClientCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/66f76917-fb2c-423f-9368-b5f464e7decd

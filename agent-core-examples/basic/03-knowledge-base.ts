@@ -169,12 +169,15 @@ export class KnowledgeBaseStack extends cdk.Stack {
       instruction: 'You are an assistant with access to a knowledge base. Use the knowledge base to answer questions accurately.',
     });
 
-    new bedrock.CfnAgentKnowledgeBase(this, 'AgentKBAssociation', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      knowledgeBaseId: knowledgeBase.attrKnowledgeBaseId,
-      description: 'Knowledge base for the agent',
-      knowledgeBaseState: 'ENABLED',
+    new cdk.CfnResource(this, 'AgentKBAssociation', {
+      type: 'AWS::Bedrock::AgentKnowledgeBase',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        KnowledgeBaseId: knowledgeBase.attrKnowledgeBaseId,
+        Description: 'Knowledge base for the agent',
+        KnowledgeBaseState: 'ENABLED',
+      },
     });
 
     new cdk.CfnOutput(this, 'DataBucketName', {

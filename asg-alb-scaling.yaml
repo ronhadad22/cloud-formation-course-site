@@ -119,12 +119,12 @@ Parameters:
     Description: CIDR block for Client VPN clients (must not overlap with VPC CIDR)
     AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2])$'
 
-  ServerCertificateArn:
+  VPNServerCertificateArn:
     Type: String
     Description: ARN of the server certificate for Client VPN authentication (must be imported to ACM)
     Default: ""
 
-  ClientCertificateArn:
+  VPNClientCertificateArn:
     Type: String
     Description: ARN of the client certificate for Client VPN authentication (must be imported to ACM)
     Default: ""
@@ -150,8 +150,8 @@ Conditions:
   DeployClientVPN: !Equals [ !Ref VPNType, "aws-client-vpn" ]
   DeployAnyOpenVPN: !Or [ !Condition DeployOpenVPNWindows, !Condition DeployOpenVPNLinux ]
   UseCustomOpenVPNAMI: !Not [!Equals [!Ref OpenVPNImageId, ""]]
-  HasServerCert: !Not [!Equals [!Ref ServerCertificateArn, ""]]
-  HasClientCert: !Not [!Equals [!Ref ClientCertificateArn, ""]]
+  HasServerCert: !Not [!Equals [!Ref VPNServerCertificateArn, ""]]
+  HasClientCert: !Not [!Equals [!Ref VPNClientCertificateArn, ""]]
 
 Resources:
   # VPC
@@ -570,11 +570,11 @@ Resources:
     Properties:
       Description: !Sub ${AWS::StackName} Client VPN Endpoint
       ClientCidrBlock: !Ref ClientVPNCidr
-      ServerCertificateArn: !Ref ServerCertificateArn
+      VPNServerCertificateArn: !Ref VPNServerCertificateArn
       AuthenticationOptions:
         - Type: certificate-authentication
           MutualAuthentication:
-            ClientRootCertificateChainArn: !Ref ClientCertificateArn
+            ClientRootCertificateChainArn: !Ref VPNClientCertificateArn
       ConnectionLogOptions:
         Enabled: true
         CloudwatchLogGroup: !Ref ClientVPNLogGroup

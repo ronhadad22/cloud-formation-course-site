@@ -1,0 +1,114 @@
+# Prometheus Stack Helm Chart Values
+# For kube-prometheus-stack chart
+# Repository: https://prometheus-community.github.io/helm-charts
+
+prometheus:
+  prometheusSpec:
+    # Data retention period
+    retention: 30d
+    
+    # Resource requests and limits
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    
+    # Persistent storage for Prometheus data
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: gp2
+          resources:
+            requests:
+              storage: 50Gi
+    
+    # Service monitor selector
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+  
+  # Expose Prometheus service
+  service:
+    type: LoadBalancer
+    port: 9090
+
+# Grafana configuration
+grafana:
+  enabled: true
+  
+  # Admin credentials (change in production!)
+  adminPassword: "admin123"
+  
+  # Expose Grafana service
+  service:
+    type: LoadBalancer
+    port: 80
+  
+  # Persistent storage for Grafana
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: gp2
+  
+  # Pre-configured dashboards
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+  
+  alertmanagerSpec:
+    # Persistent storage for Alertmanager
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: gp2
+          resources:
+            requests:
+              storage: 10Gi
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  
+  # Expose Alertmanager service
+  service:
+    type: LoadBalancer
+    port: 9093
+
+# Kube State Metrics - collects Kubernetes object metrics
+kubeStateMetrics:
+  enabled: true
+
+# Node Exporter - collects node-level metrics
+nodeExporter:
+  enabled: true
+
+# Prometheus Operator settings
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

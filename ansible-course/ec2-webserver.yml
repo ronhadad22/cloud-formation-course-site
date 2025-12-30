@@ -1,0 +1,61 @@
+---
+- name: Configure EC2 Web Server
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Display EC2 instance information
+      debug:
+        msg: "Configuring {{ ansible_distribution }} {{ ansible_distribution_version }} on {{ ansible_hostname }}"
+    
+    - name: Update package cache
+      yum:
+        update_cache: yes
+      when: ansible_distribution == "Amazon"
+    
+    - name: Install nginx
+      yum:
+        name: nginx
+        state: present
+      when: ansible_distribution == "Amazon"
+    
+    - name: Create custom index.html
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Ansible Demo</title>
+              <style>
+                  body { font-family: Arial; margin: 50px; background: #f0f0f0; }
+                  .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                  h1 { color: #e74c3c; }
+                  .info { background: #ecf0f1; padding: 15px; border-radius: 5px; margin: 10px 0; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>🚀 Ansible Automation Success!</h1>
+                  <div class="info">
+                      <p><strong>Server:</strong> {{ ansible_hostname }}</p>
+                      <p><strong>OS:</strong> {{ ansible_distribution }} {{ ansible_distribution_version }}</p>
+                      <p><strong>Managed by:</strong> Ansible</p>
+                      <p><strong>Deployed:</strong> {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+                  </div>
+                  <p>This web server was automatically configured using Ansible!</p>
+              </div>
+          </body>
+          </html>
+        dest: /usr/share/nginx/html/index.html
+        mode: '0644'
+    
+    - name: Ensure nginx is started and enabled
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+    
+    - name: Display success message
+      debug:
+        msg: "Web server configured! Visit http://{{ ansible_host }} in your browser"

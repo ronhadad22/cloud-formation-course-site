@@ -42,7 +42,7 @@ aws acm import-certificate \
   --tags Key=Name,Value="ClientVPN-Server-Certificate" Key=Type,Value="Server" Key=Purpose,Value="ClientVPN"
 ```
 
-**Copy the ARN from output - this is your `ServerCertificateArn`**
+**Copy the ARN from output - this is your `VPNServerCertificateArn`**
 **In AWS Console, this will show as: "ClientVPN-Server-Certificate"**
 
 ```bash
@@ -55,7 +55,7 @@ aws acm import-certificate \
   --tags Key=Name,Value="ClientVPN-Client-Certificate" Key=Type,Value="Client" Key=Purpose,Value="ClientVPN"
 ```
 
-**Copy the ARN from output - this is your `ClientCertificateArn`**
+**Copy the ARN from output - this is your `VPNClientCertificateArn`**
 **In AWS Console, this will show as: "ClientVPN-Client-Certificate"**
 
 ## Step 3: Use in CloudFormation
@@ -64,8 +64,8 @@ Add these to your CloudFormation parameters:
 
 ```
 VPNType: aws-client-vpn
-ServerCertificateArn: [PASTE_SERVER_ARN_HERE]
-ClientCertificateArn: [PASTE_CLIENT_ARN_HERE]
+VPNServerCertificateArn: [PASTE_SERVER_ARN_HERE]
+VPNClientCertificateArn: [PASTE_CLIENT_ARN_HERE]
 ```
 
 ## Step 4: Connect to VPN

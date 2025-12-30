@@ -42,8 +42,8 @@ aws cloudformation update-stack \
   --use-previous-template \
   --parameters \
     ParameterKey=VPNType,ParameterValue=aws-client-vpn \
-    ParameterKey=ServerCertificateArn,ParameterValue=$SERVER_CERTIFICATE_ARN \
-    ParameterKey=ClientCertificateArn,ParameterValue=$CLIENT_CERTIFICATE_ARN \
+    ParameterKey=VPNServerCertificateArn,ParameterValue=$SERVER_CERTIFICATE_ARN \
+    ParameterKey=VPNClientCertificateArn,ParameterValue=$CLIENT_CERTIFICATE_ARN \
     ParameterKey=KeyPairName,UsePreviousValue=true \
     ParameterKey=InstanceType,UsePreviousValue=true \
     ParameterKey=MinSize,UsePreviousValue=true \

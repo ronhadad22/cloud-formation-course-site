@@ -206,15 +206,18 @@ def handler(event, context):
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'RoutingActionGroup', {
-      agentId: orchestratorAgent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'agent-routing',
-      actionGroupExecutor: {
-        lambda: routingLambda.functionArn,
-      },
-      apiSchema: {
-        payload: JSON.stringify(apiSchema),
+    new cdk.CfnResource(this, 'RoutingActionGroup', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: orchestratorAgent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'agent-routing',
+        ActionGroupExecutor: {
+          Lambda: routingLambda.functionArn,
+        },
+        ApiSchema: {
+          Payload: JSON.stringify(apiSchema),
+        },
       },
     });
 

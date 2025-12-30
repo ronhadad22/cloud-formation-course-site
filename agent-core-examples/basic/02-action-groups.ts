@@ -127,17 +127,20 @@ def handler(event, context):
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'WeatherActionGroup', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'weather-actions',
-      actionGroupExecutor: {
-        lambda: actionLambda.functionArn,
+    new cdk.CfnResource(this, 'WeatherActionGroup', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'weather-actions',
+        ActionGroupExecutor: {
+          Lambda: actionLambda.functionArn,
+        },
+        ApiSchema: {
+          Payload: JSON.stringify(apiSchema),
+        },
+        Description: 'Actions for retrieving weather information',
       },
-      apiSchema: {
-        payload: JSON.stringify(apiSchema),
-      },
-      description: 'Actions for retrieving weather information',
     });
 
     new cdk.CfnOutput(this, 'AgentId', {

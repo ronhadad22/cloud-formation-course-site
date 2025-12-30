@@ -281,12 +281,15 @@ def create_response(action: str, api_path: str, status_code: int, body: dict) ->
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'SecureActions', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'secure-actions',
-      actionGroupExecutor: { lambda: secureActionLambda.functionArn },
-      apiSchema: { payload: JSON.stringify(apiSchema) },
+    new cdk.CfnResource(this, 'SecureActions', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'secure-actions',
+        ActionGroupExecutor: { Lambda: secureActionLambda.functionArn },
+        ApiSchema: { Payload: JSON.stringify(apiSchema) },
+      },
     });
 
     new cdk.CfnOutput(this, 'AgentId', { value: agent.attrAgentId });

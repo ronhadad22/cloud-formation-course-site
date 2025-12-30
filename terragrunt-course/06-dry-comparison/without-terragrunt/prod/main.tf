@@ -13,11 +13,10 @@ terraform {
 
   # DUPLICATED: Same backend config as dev and staging, only key path differs
   backend "s3" {
-    bucket         = "my-terraform-state-bucket"
+    bucket         = "terraform-backend-course-int-2025"
     key            = "prod/vpc/terraform.tfstate"  # Only this line is different!
     region         = "us-east-1"
     encrypt        = true
-    dynamodb_table = "terraform-state-locks"
   }
 }
 

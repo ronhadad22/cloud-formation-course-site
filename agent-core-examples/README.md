@@ -25,7 +25,12 @@ Agent Core is a CDK construct library that enables you to build AI agents with:
 ## Prerequisites
 
 ```bash
-npm install @aws-cdk/aws-bedrock
+# Install dependencies
+npm install
+
+# AWS CDK v2.170.0 or higher
+# Note: These examples use CfnResource for AgentActionGroup and AgentKnowledgeBase
+# as these CloudFormation resources are very new to CDK
 ```
 
 ## Examples Overview

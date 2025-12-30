@@ -241,11 +241,14 @@ def handler(event, context):
       4. If information is not in the knowledge base, say so clearly`,
     });
 
-    new bedrock.CfnAgentKnowledgeBase(this, 'AgentKB', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      knowledgeBaseId: knowledgeBase.attrKnowledgeBaseId,
-      knowledgeBaseState: 'ENABLED',
+    new cdk.CfnResource(this, 'AgentKB', {
+      type: 'AWS::Bedrock::AgentKnowledgeBase',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        KnowledgeBaseId: knowledgeBase.attrKnowledgeBaseId,
+        KnowledgeBaseState: 'ENABLED',
+      },
     });
 
     const apiSchema = {
@@ -266,12 +269,15 @@ def handler(event, context):
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'RetrievalActions', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'rag-retrieval',
-      actionGroupExecutor: { lambda: retrievalLambda.functionArn },
-      apiSchema: { payload: JSON.stringify(apiSchema) },
+    new cdk.CfnResource(this, 'RetrievalActions', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'rag-retrieval',
+        ActionGroupExecutor: { Lambda: retrievalLambda.functionArn },
+        ApiSchema: { Payload: JSON.stringify(apiSchema) },
+      },
     });
 
     new cdk.CfnOutput(this, 'DocumentBucket', { value: documentBucket.bucketName });

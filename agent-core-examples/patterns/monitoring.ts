@@ -243,12 +243,15 @@ def handler(event, context):
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'MonitoredActions', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'monitored-actions',
-      actionGroupExecutor: { lambda: metricsLambda.functionArn },
-      apiSchema: { payload: JSON.stringify(apiSchema) },
+    new cdk.CfnResource(this, 'MonitoredActions', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'monitored-actions',
+        ActionGroupExecutor: { Lambda: metricsLambda.functionArn },
+        ApiSchema: { Payload: JSON.stringify(apiSchema) },
+      },
     });
 
     const errorMetric = new cloudwatch.Metric({

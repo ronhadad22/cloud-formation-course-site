@@ -250,12 +250,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'ErrorHandlingActions', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'error-handling',
-      actionGroupExecutor: { lambda: actionLambda.functionArn },
-      apiSchema: { payload: JSON.stringify(apiSchema) },
+    new cdk.CfnResource(this, 'ErrorHandlingActions', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'error-handling',
+        ActionGroupExecutor: { Lambda: actionLambda.functionArn },
+        ApiSchema: { Payload: JSON.stringify(apiSchema) },
+      },
     });
 
     new cdk.CfnOutput(this, 'AgentId', { value: agent.attrAgentId });

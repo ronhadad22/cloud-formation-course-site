@@ -13,11 +13,10 @@ terraform {
 
   # DUPLICATED: Same backend config in staging/backend.tf and prod/backend.tf
   backend "s3" {
-    bucket         = "my-terraform-state-bucket"
+    bucket         = "terraform-backend-course-int-2025"
     key            = "dev/vpc/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
-    dynamodb_table = "terraform-state-locks"
   }
 }
 

@@ -66,8 +66,8 @@ SERVER_CERTIFICATE_ARN=$SERVER_CERT_ARN
 CLIENT_CERTIFICATE_ARN=$CLIENT_CERT_ARN
 
 # Use these values in your CloudFormation parameters:
-# ServerCertificateArn: $SERVER_CERT_ARN
-# ClientCertificateArn: $CLIENT_CERT_ARN
+# VPNServerCertificateArn: $SERVER_CERT_ARN
+# VPNClientCertificateArn: $CLIENT_CERT_ARN
 EOF
 
 echo -e "${GREEN}✅ Certificate ARNs saved to: certificate-arns.txt${NC}"
@@ -94,8 +94,8 @@ aws cloudformation update-stack \
   --use-previous-template \
   --parameters \
     ParameterKey=VPNType,ParameterValue=aws-client-vpn \
-    ParameterKey=ServerCertificateArn,ParameterValue=<SERVER_ARN> \
-    ParameterKey=ClientCertificateArn,ParameterValue=<CLIENT_ARN> \
+    ParameterKey=VPNServerCertificateArn,ParameterValue=<SERVER_ARN> \
+    ParameterKey=VPNClientCertificateArn,ParameterValue=<CLIENT_ARN> \
     ParameterKey=KeyPairName,UsePreviousValue=true \
     ParameterKey=InstanceType,UsePreviousValue=true \
     ParameterKey=MinSize,UsePreviousValue=true \

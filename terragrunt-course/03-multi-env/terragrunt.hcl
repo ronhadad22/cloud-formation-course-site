@@ -11,11 +11,12 @@ remote_state {
   }
   
   config = {
-    bucket         = "terragrunt-course-state-${get_aws_account_id()}"
+    bucket         = "terraform-backend-course-int-2025"
     key            = "${path_relative_to_include()}/terraform.tfstate"
     region         = local.aws_region
     encrypt        = true
     dynamodb_table = "terragrunt-course-locks"
+    use_lockfile   = true
   }
 }
 

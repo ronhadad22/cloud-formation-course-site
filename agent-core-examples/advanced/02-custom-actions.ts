@@ -300,15 +300,18 @@ def error_response(action, api_path, status_code, error_message):
       },
     };
 
-    new bedrock.CfnAgentActionGroup(this, 'TaskActions', {
-      agentId: agent.attrAgentId,
-      agentVersion: 'DRAFT',
-      actionGroupName: 'task-management',
-      actionGroupExecutor: {
-        lambda: actionLambda.functionArn,
-      },
-      apiSchema: {
-        payload: JSON.stringify(apiSchema),
+    new cdk.CfnResource(this, 'TaskActions', {
+      type: 'AWS::Bedrock::AgentActionGroup',
+      properties: {
+        AgentId: agent.attrAgentId,
+        AgentVersion: 'DRAFT',
+        ActionGroupName: 'task-management',
+        ActionGroupExecutor: {
+          Lambda: actionLambda.functionArn,
+        },
+        ApiSchema: {
+          Payload: JSON.stringify(apiSchema),
+        },
       },
     });
 
