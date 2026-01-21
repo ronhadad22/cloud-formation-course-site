@@ -58,13 +58,14 @@ Learn how SNS fans out messages to multiple SQS queues - one message reaches man
 ### Deploy the Stack
 
 ```bash
+# Note: Passwords must be alphanumeric only (a-z, A-Z, 0-9), 1-41 characters
 aws cloudformation create-stack \
   --stack-name my-sns-to-sqs \
   --template-body file://sns.yaml \
   --region us-east-2 \
   --parameters \
-    ParameterKey=MyPublishUserPassword,ParameterValue=TempPass123 \
-    ParameterKey=MyQueueUserPassword,ParameterValue=TempPass456 \
+    ParameterKey=MyPublishUserPassword,ParameterValue=Publisher2024 \
+    ParameterKey=MyQueueUserPassword,ParameterValue=Consumer2024 \
   --capabilities CAPABILITY_IAM
 ```
 
