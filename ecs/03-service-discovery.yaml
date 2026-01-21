@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Service Discovery Namespace'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: ecs-demo
+    Description: Environment name prefix
+
+Resources:
+  ServiceDiscoveryNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: !Sub ${EnvironmentName}.local
+      Vpc:
+        Fn::ImportValue: !Sub ${EnvironmentName}-VPC
+      Description: Private DNS namespace for ECS services
+
+Outputs:
+  NamespaceId:
+    Description: Service Discovery Namespace ID
+    Value: !Ref ServiceDiscoveryNamespace
+    Export:
+      Name: !Sub ${EnvironmentName}-NamespaceId
+
+  NamespaceName:
+    Description: Service Discovery Namespace Name
+    Value: !Sub ${EnvironmentName}.local
+    Export:
+      Name: !Sub ${EnvironmentName}-NamespaceName

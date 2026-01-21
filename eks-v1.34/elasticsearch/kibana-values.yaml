@@ -1,0 +1,43 @@
+# Kibana Helm Chart Values
+# Using official Elastic Helm chart
+
+# Elasticsearch connection
+elasticsearchHosts: "http://elasticsearch-master:9200"
+
+# Resource limits
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+
+# Service configuration - LoadBalancer for external access
+service:
+  type: LoadBalancer
+  port: 5601
+  annotations: {}
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+# Kibana configuration
+kibanaConfig:
+  kibana.yml: |
+    server.name: kibana
+    server.host: "0.0.0.0"
+    xpack.security.enabled: false
+
+# Image
+image: "docker.elastic.co/kibana/kibana"
+imageTag: "8.11.3"
+imagePullPolicy: "IfNotPresent"
+
+# Replicas
+replicas: 1
+
+# Health checks
+healthCheckPath: "/api/status"
+
+# Disable certificate volume mounts
+secretMounts: []

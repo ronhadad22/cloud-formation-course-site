@@ -1,28 +1,28 @@
 {
   "version": "48.0.0",
   "artifacts": {
-    "SimpleAgentStack.assets": {
+    "ActionGroupsStack.assets": {
       "type": "cdk:asset-manifest",
       "properties": {
-        "file": "SimpleAgentStack.assets.json",
+        "file": "ActionGroupsStack.assets.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
       }
     },
-    "SimpleAgentStack": {
+    "ActionGroupsStack": {
       "type": "aws:cloudformation:stack",
       "environment": "aws://950555670656/us-east-1",
       "properties": {
-        "templateFile": "SimpleAgentStack.template.json",
+        "templateFile": "ActionGroupsStack.template.json",
         "terminationProtection": false,
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::950555670656:role/cdk-hnb659fds-deploy-role-950555670656-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::950555670656:role/cdk-hnb659fds-cfn-exec-role-950555670656-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-950555670656-us-east-1/f7660225accc25fe4b8bfe489e598c276839405cdbdd40ab13ff7184705b8896.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-950555670656-us-east-1/2c1b00a2de7fb5e3d519629a672809053601ed5388ee271b70a6620ca480a2a7.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
-          "SimpleAgentStack.assets"
+          "ActionGroupsStack.assets"
         ],
         "lookupRole": {
           "arn": "arn:${AWS::Partition}:iam::950555670656:role/cdk-hnb659fds-lookup-role-950555670656-us-east-1",
@@ -31,59 +31,77 @@
         }
       },
       "dependencies": [
-        "SimpleAgentStack.assets"
+        "ActionGroupsStack.assets"
       ],
       "metadata": {
-        "/SimpleAgentStack/AgentRole/Resource": [
+        "/ActionGroupsStack/AgentRole/Resource": [
           {
             "type": "aws:cdk:logicalId",
             "data": "AgentRoleF4A42D6B"
           }
         ],
-        "/SimpleAgentStack/AgentRole/DefaultPolicy/Resource": [
+        "/ActionGroupsStack/AgentRole/DefaultPolicy/Resource": [
           {
             "type": "aws:cdk:logicalId",
             "data": "AgentRoleDefaultPolicy1027F5D2"
           }
         ],
-        "/SimpleAgentStack/MyFirstAgent": [
+        "/ActionGroupsStack/ActionHandler/ServiceRole/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "MyFirstAgent"
+            "data": "ActionHandlerServiceRoleC342838F"
           }
         ],
-        "/SimpleAgentStack/AgentId": [
+        "/ActionGroupsStack/ActionHandler/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ActionHandlerD0E80DBE"
+          }
+        ],
+        "/ActionGroupsStack/ActionHandler/AllowBedrockInvoke": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ActionHandlerAllowBedrockInvoke0AC29E24"
+          }
+        ],
+        "/ActionGroupsStack/WeatherAgent": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WeatherAgent"
+          }
+        ],
+        "/ActionGroupsStack/AgentId": [
           {
             "type": "aws:cdk:logicalId",
             "data": "AgentId"
           }
         ],
-        "/SimpleAgentStack/AgentArn": [
+        "/ActionGroupsStack/AgentArn": [
           {
             "type": "aws:cdk:logicalId",
             "data": "AgentArn"
           }
         ],
-        "/SimpleAgentStack/CDKMetadata/Default": [
+        "/ActionGroupsStack/CDKMetadata/Default": [
           {
             "type": "aws:cdk:logicalId",
             "data": "CDKMetadata"
           }
         ],
-        "/SimpleAgentStack/BootstrapVersion": [
+        "/ActionGroupsStack/BootstrapVersion": [
           {
             "type": "aws:cdk:logicalId",
             "data": "BootstrapVersion"
           }
         ],
-        "/SimpleAgentStack/CheckBootstrapVersion": [
+        "/ActionGroupsStack/CheckBootstrapVersion": [
           {
             "type": "aws:cdk:logicalId",
             "data": "CheckBootstrapVersion"
           }
         ]
       },
-      "displayName": "SimpleAgentStack"
+      "displayName": "ActionGroupsStack"
     },
     "Tree": {
       "type": "cdk:tree",

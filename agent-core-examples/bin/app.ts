@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
-import { SimpleAgentStack } from '../basic/01-simple-agent';
+import { ActionGroupsStack } from '../basic/02-action-groups';
 
 const app = new cdk.App();
 
-new SimpleAgentStack(app, 'SimpleAgentStack', {
+new ActionGroupsStack(app, 'ActionGroupsStack', {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
   },
-  description: 'Simple Bedrock Agent example for learning Agent Core concepts',
+  description: 'Weather agent with action groups using inline property',
 });

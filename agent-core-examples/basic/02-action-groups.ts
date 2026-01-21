@@ -10,13 +10,10 @@ export class ActionGroupsStack extends cdk.Stack {
 
     const agentRole = new iam.Role(this, 'AgentRole', {
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
+      ],
     });
-
-    agentRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['bedrock:InvokeModel'],
-      resources: ['*'],
-    }));
 
     const actionLambda = new lambda.Function(this, 'ActionHandler', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -71,80 +68,103 @@ def handler(event, context):
       `),
     });
 
-    actionLambda.grantInvoke(agentRole);
+    // Add permissions to agent role
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:InvokeModel',
+        'bedrock:InvokeModelWithResponseStream',
+      ],
+      resources: [
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
+      ],
+    }));
 
-    const agent = new bedrock.CfnAgent(this, 'AgentWithActions', {
-      agentName: 'agent-with-action-groups',
+    // Allow agent to invoke Lambda
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [actionLambda.functionArn],
+    }));
+
+    // Create agent first so we can reference it
+    const agent = new bedrock.CfnAgent(this, 'WeatherAgent', {
+      agentName: 'weather-agent-with-actions',
       agentResourceRoleArn: agentRole.roleArn,
       foundationModel: 'anthropic.claude-3-sonnet-20240229-v1:0',
-      instruction: 'You are a weather assistant that can provide weather information for any location.',
-    });
-
-    const apiSchema = {
-      openapi: '3.0.0',
-      info: {
-        title: 'Weather API',
-        version: '1.0.0',
-        description: 'API for getting weather information',
-      },
-      paths: {
-        '/get-weather': {
-          get: {
-            summary: 'Get weather for a location',
-            description: 'Returns current weather conditions for the specified location',
-            operationId: 'getWeather',
-            parameters: [
-              {
-                name: 'location',
-                in: 'query',
-                description: 'The city or location to get weather for',
-                required: true,
-                schema: {
-                  type: 'string',
-                },
-              },
-            ],
-            responses: {
-              '200': {
-                description: 'Successful response',
-                content: {
-                  'application/json': {
+      instruction: `You are a helpful weather assistant. You can provide weather information for any location.
+      When asked about weather, use the get-weather action to retrieve current conditions.`,
+      idleSessionTtlInSeconds: 600,
+      actionGroups: [{
+        actionGroupName: 'weather-actions',
+        actionGroupExecutor: {
+          lambda: actionLambda.functionArn,
+        },
+        apiSchema: {
+          payload: JSON.stringify({
+            openapi: '3.0.0',
+            info: {
+              title: 'Weather API',
+              version: '1.0.0',
+              description: 'API for getting weather information',
+            },
+            paths: {
+              '/get-weather': {
+                get: {
+                  summary: 'Get current weather for a location',
+                  description: 'Returns current weather conditions',
+                  operationId: 'getWeather',
+                  parameters: [{
+                    name: 'location',
+                    in: 'query',
+                    description: 'City name or location',
+                    required: true,
                     schema: {
-                      type: 'object',
-                      properties: {
-                        location: { type: 'string' },
-                        temperature: { type: 'number' },
-                        conditions: { type: 'string' },
-                        humidity: { type: 'number' },
+                      type: 'string',
+                    },
+                  }],
+                  responses: {
+                    '200': {
+                      description: 'Successful response',
+                      content: {
+                        'application/json': {
+                          schema: {
+                            type: 'object',
+                            properties: {
+                              location: { type: 'string' },
+                              temperature: { type: 'number' },
+                              conditions: { type: 'string' },
+                              humidity: { type: 'number' },
+                            },
+                          },
+                        },
                       },
                     },
                   },
                 },
               },
             },
-          },
+          }),
         },
-      },
-    };
+        description: 'Actions for retrieving weather information',
+      }],
+    });
 
-    new cdk.CfnResource(this, 'WeatherActionGroup', {
-      type: 'AWS::Bedrock::AgentActionGroup',
-      properties: {
-        AgentId: agent.attrAgentId,
-        AgentVersion: 'DRAFT',
-        ActionGroupName: 'weather-actions',
-        ActionGroupExecutor: {
-          Lambda: actionLambda.functionArn,
-        },
-        ApiSchema: {
-          Payload: JSON.stringify(apiSchema),
-        },
-        Description: 'Actions for retrieving weather information',
-      },
+    // Grant Bedrock service permission to invoke Lambda
+    actionLambda.addPermission('AllowBedrockInvoke', {
+      principal: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+      action: 'lambda:InvokeFunction',
+      sourceArn: agent.attrAgentArn,
     });
 
     new cdk.CfnOutput(this, 'AgentId', {
       value: agent.attrAgentId,
+      description: 'Agent ID',
+    });
+
+    new cdk.CfnOutput(this, 'AgentArn', {
+      value: agent.attrAgentArn,
+      description: 'Agent ARN',
     });
   }
 }
