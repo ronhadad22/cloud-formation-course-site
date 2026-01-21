@@ -13,16 +13,21 @@ Then add layers: SQS → Lambda → DynamoDB
 ### Step 1: Deploy the Stack
 
 ```bash
+# IMPORTANT: Replace YOURNAME with your actual name or unique ID
+# Example: student-eb-john-2026 or student-eb-alice-$(date +%s)
+
 aws cloudformation create-stack \
   --stack-name my-eventbridge \
   --template-body file://eventbridge.yaml \
   --region us-east-2 \
   --parameters \
-    ParameterKey=BucketName,ParameterValue=student-eb-YOURNAME \
+    ParameterKey=BucketName,ParameterValue=student-eb-YOURNAME-$(date +%s) \
     ParameterKey=EmailAddress,ParameterValue=YOUR-EMAIL \
   --capabilities CAPABILITY_IAM \
   --profile YOUR-PROFILE
 ```
+
+**Note**: The `$(date +%s)` adds a timestamp to make the bucket name unique.
 
 ### Step 2: Wait & Confirm Email
 
@@ -354,6 +359,11 @@ submission/
 ---
 
 ## Troubleshooting
+
+**Bucket already exists error?**
+- S3 bucket names must be globally unique
+- Add timestamp: `student-eb-yourname-$(date +%s)`
+- Or use different name
 
 **Email not received?**
 - Check spam folder
