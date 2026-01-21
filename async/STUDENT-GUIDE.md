@@ -50,41 +50,66 @@ Check your email - notification arrives in 1-2 minutes.
 
 ---
 
-## Part 2: Deploy SNS-to-SQS (30 min)
+## Part 2: Deploy SNS-to-SQS Fan-Out (30 min)
 
 ### Why?
-Learn how SNS fans out messages to multiple SQS queues - one message reaches many consumers.
+Learn how SNS fans out messages to multiple SQS queues - **one message reaches many consumers**.
+
+This is the **pub/sub pattern**: publishers don't know about subscribers.
 
 ### Deploy the Stack
 
 ```bash
-# Note: Passwords must be alphanumeric only (a-z, A-Z, 0-9), 1-41 characters
 aws cloudformation create-stack \
-  --stack-name my-sns-to-sqs \
-  --template-body file://sns.yaml \
-  --region us-east-2 \
-  --parameters \
-    ParameterKey=MyPublishUserPassword,ParameterValue=Publisher2024 \
-    ParameterKey=MyQueueUserPassword,ParameterValue=Consumer2024 \
-  --capabilities CAPABILITY_IAM
+  --stack-name my-sns-fanout \
+  --template-body file://sns-simple.yaml \
+  --region us-east-2
 ```
 
 ### What Gets Created
 
-- **1 SNS Topic** → Publishes messages
-- **2 SQS Queues** → Receive messages from SNS
-- **IAM Users** → One to publish, one to consume
-- **Policies** → Permissions for everything
+- **1 SNS Topic** → Central message hub
+- **2 SQS Queues** → Independent consumers
+- **2 Subscriptions** → Connect queues to topic
+- **Policies** → Allow SNS to write to queues
+
+### Architecture
+
+```
+        Publisher
+            ↓
+        SNS Topic
+          ↙   ↘
+     Queue 1  Queue 2
+        ↓       ↓
+   Consumer1 Consumer2
+```
 
 ### Test It
 
-1. Go to SNS Console → Find your topic
-2. Click "Publish message"
-3. Enter any message and publish
-4. Go to SQS Console → Check both queues
-5. Both queues should have the same message
+**Step 1**: Publish a message
+1. Go to **SNS Console** → Topics
+2. Click your topic (`my-sns-topic`)
+3. Click **"Publish message"**
+4. Subject: `Test`
+5. Message: `Hello from SNS!`
+6. Click **"Publish message"**
 
-**✅ Deliverable**: Screenshot showing message in both SQS queues
+**Step 2**: Check both queues
+1. Go to **SQS Console** → Queues
+2. Click `my-sns-topic-queue-1` → **"Send and receive messages"** → **"Poll for messages"**
+3. You should see your message
+4. Repeat for `my-sns-topic-queue-2`
+5. **Same message in both queues!** ✨
+
+**✅ Deliverable**: Screenshot showing the same message in both SQS queues
+
+### Key Concepts
+
+- **Fan-out**: 1 message → N consumers
+- **Decoupling**: Publisher doesn't know about queues
+- **Independent processing**: Each queue processes at its own pace
+- **Reliability**: If one consumer fails, others continue
 
 ---
 
@@ -391,7 +416,7 @@ submission/
 aws cloudformation delete-stack --stack-name my-eventbridge-dynamodb --region us-east-2
 aws cloudformation delete-stack --stack-name my-eventbridge-lambda --region us-east-2
 aws cloudformation delete-stack --stack-name my-eventbridge-sqs --region us-east-2
-aws cloudformation delete-stack --stack-name my-sns-to-sqs --region us-east-2
+aws cloudformation delete-stack --stack-name my-sns-fanout --region us-east-2
 
 # Empty S3 bucket first
 aws s3 rm s3://student-eb-YOURNAME --recursive --region us-east-2
