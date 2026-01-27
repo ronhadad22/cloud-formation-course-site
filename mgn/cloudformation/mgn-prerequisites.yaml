@@ -1,0 +1,327 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'MGN Prerequisites - IAM Roles, VPC, and Subnets for AWS Application Migration Service'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: 'MGN-Demo'
+    Description: 'Environment name prefix for resources'
+
+  VpcCIDR:
+    Type: String
+    Default: '10.0.0.0/16'
+    Description: 'CIDR block for VPC'
+
+  StagingSubnetCIDR:
+    Type: String
+    Default: '10.0.1.0/24'
+    Description: 'CIDR block for MGN staging subnet'
+
+  TargetSubnetCIDR:
+    Type: String
+    Default: '10.0.2.0/24'
+    Description: 'CIDR block for target instances subnet'
+
+Resources:
+  # VPC for MGN
+  MGNVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-VPC'
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-IGW'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MGNVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Staging Subnet (for replication servers)
+  StagingSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MGNVPC
+      CidrBlock: !Ref StagingSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Staging-Subnet'
+
+  # Target Subnet (for migrated instances)
+  TargetSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MGNVPC
+      CidrBlock: !Ref TargetSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Target-Subnet'
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MGNVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Public-RT'
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  StagingSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref StagingSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  TargetSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref TargetSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group for Replication Servers
+  ReplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-Replication-SG'
+      GroupDescription: 'Security group for MGN replication servers'
+      VpcId: !Ref MGNVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS for MGN service communication'
+        - IpProtocol: tcp
+          FromPort: 1500
+          ToPort: 1500
+          CidrIp: 0.0.0.0/0
+          Description: 'MGN data replication port'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow all outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Replication-SG'
+
+  # Security Group for Target Instances
+  TargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-Target-SG'
+      GroupDescription: 'Security group for migrated target instances'
+      VpcId: !Ref MGNVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: 'SSH access'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP access'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS access'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow all outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Target-SG'
+
+  # IAM Role for MGN Replication Servers
+  MGNReplicationServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-MGN-Replication-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationReplicationServerPolicy'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-MGN-Replication-Role'
+
+  MGNReplicationServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Replication-Profile'
+      Roles:
+        - !Ref MGNReplicationServerRole
+
+  # IAM Role for MGN Conversion Servers
+  MGNConversionServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-MGN-Conversion-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationConversionServerPolicy'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-MGN-Conversion-Role'
+
+  MGNConversionServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Conversion-Profile'
+      Roles:
+        - !Ref MGNConversionServerRole
+
+  # IAM Role for MGN Agent (to be used by source servers)
+  MGNAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-MGN-Agent-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationAgentPolicy'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-MGN-Agent-Role'
+
+  MGNAgentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Agent-Profile'
+      Roles:
+        - !Ref MGNAgentRole
+
+  # IAM User for MGN Agent Installation (alternative to instance profile)
+  MGNAgentUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub '${EnvironmentName}-MGN-Agent-User'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationAgentPolicy'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-MGN-Agent-User'
+
+  MGNAgentUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref MGNAgentUser
+
+Outputs:
+  VPCId:
+    Description: 'VPC ID for MGN'
+    Value: !Ref MGNVPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VPC-ID'
+
+  StagingSubnetId:
+    Description: 'Staging Subnet ID for replication servers'
+    Value: !Ref StagingSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-Staging-Subnet-ID'
+
+  TargetSubnetId:
+    Description: 'Target Subnet ID for migrated instances'
+    Value: !Ref TargetSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-Target-Subnet-ID'
+
+  ReplicationSecurityGroupId:
+    Description: 'Security Group ID for replication servers'
+    Value: !Ref ReplicationSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-Replication-SG-ID'
+
+  TargetSecurityGroupId:
+    Description: 'Security Group ID for target instances'
+    Value: !Ref TargetSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-Target-SG-ID'
+
+  MGNReplicationServerRoleArn:
+    Description: 'IAM Role ARN for MGN Replication Servers'
+    Value: !GetAtt MGNReplicationServerRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-Replication-Role-ARN'
+
+  MGNConversionServerRoleArn:
+    Description: 'IAM Role ARN for MGN Conversion Servers'
+    Value: !GetAtt MGNConversionServerRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-Conversion-Role-ARN'
+
+  MGNAgentRoleArn:
+    Description: 'IAM Role ARN for MGN Agent'
+    Value: !GetAtt MGNAgentRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-Agent-Role-ARN'
+
+  MGNAgentAccessKeyId:
+    Description: 'Access Key ID for MGN Agent User (use for agent installation)'
+    Value: !Ref MGNAgentUserAccessKey
+
+  MGNAgentSecretAccessKey:
+    Description: 'Secret Access Key for MGN Agent User (SAVE THIS SECURELY)'
+    Value: !GetAtt MGNAgentUserAccessKey.SecretAccessKey
+
+  InitializeMGNCommand:
+    Description: 'Command to initialize MGN service'
+    Value: !Sub 'aws mgn initialize-service --region ${AWS::Region}'
+
+  ConfigureMGNCommand:
+    Description: 'Command to configure MGN replication settings'
+    Value: !Sub |
+      aws mgn update-replication-configuration-template \
+        --region ${AWS::Region} \
+        --staging-area-subnet-id ${StagingSubnet} \
+        --replication-servers-security-groups-ids ${ReplicationSecurityGroup} \
+        --associate-default-security-group false \
+        --bandwidth-throttling 0 \
+        --create-public-ip true \
+        --data-plane-routing PUBLIC_IP \
+        --default-large-staging-disk-type GP3 \
+        --ebs-encryption DEFAULT \
+        --replication-server-instance-type t3.small \
+        --use-dedicated-replication-server false

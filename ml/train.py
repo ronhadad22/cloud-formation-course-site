@@ -93,15 +93,21 @@ if __name__ == "__main__":
     print("MLflow Basic Example - Wine Classification")
     print("=" * 60)
     
-    # Train with different hyperparameters
-    print("\n--- Experiment 1: Default parameters ---")
-    train_model(n_estimators=100, max_depth=5)
+    # Train with different hyperparameters to show varied results
+    print("\n--- Experiment 1: Shallow tree (underfitting) ---")
+    train_model(n_estimators=10, max_depth=2)
     
-    print("\n--- Experiment 2: More trees ---")
-    train_model(n_estimators=200, max_depth=5)
+    print("\n--- Experiment 2: Medium complexity ---")
+    train_model(n_estimators=50, max_depth=5)
     
-    print("\n--- Experiment 3: Deeper trees ---")
+    print("\n--- Experiment 3: High complexity ---")
     train_model(n_estimators=100, max_depth=10)
+    
+    print("\n--- Experiment 4: Very high complexity ---")
+    train_model(n_estimators=200, max_depth=15)
+    
+    print("\n--- Experiment 5: Minimal model ---")
+    train_model(n_estimators=5, max_depth=1)
     
     print("\n" + "=" * 60)
     print("All experiments completed!")

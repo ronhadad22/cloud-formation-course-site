@@ -15,14 +15,14 @@ Parameters:
     Default: 'us-east-1_ZWzVtGG7c'
     Description: 'Cognito User Pool ID'
   
-  UserPoolClientId:
-    Type: String
-    Default: '13thtsksprs588ud2sqelcfkp6'
-    Description: 'Cognito User Pool Client ID'
-  
   UserPoolDomain:
     Type: String
     Description: 'Cognito User Pool Domain (e.g., myapp-12345)'
+  
+  CertificateArn:
+    Type: String
+    Description: 'ACM Certificate ARN for HTTPS listener'
+    Default: 'arn:aws:acm:us-east-1:950555670656:certificate/3f8e0aec-3278-4d36-8bd2-be0afdef7fa2'
   
   BackendInstanceId:
     Type: String
@@ -33,6 +33,27 @@ Conditions:
   HasBackendInstance: !Not [!Equals [!Ref BackendInstanceId, '']]
 
 Resources:
+  ALBUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${AWS::StackName}-ALB-Client'
+      UserPoolId: !Ref UserPoolId
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - !Sub 'https://${ApplicationLoadBalancer.DNSName}/oauth2/idpresponse'
+      SupportedIdentityProviders:
+        - COGNITO
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -117,10 +138,25 @@ Resources:
       Port: 80
       Protocol: HTTP
       DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
         - Type: authenticate-cognito
           AuthenticateCognitoConfig:
             UserPoolArn: !Sub 'arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}'
-            UserPoolClientId: !Ref UserPoolClientId
+            UserPoolClientId: !Ref ALBUserPoolClient
             UserPoolDomain: !Ref UserPoolDomain
             OnUnauthenticatedRequest: authenticate
             Scope: 'openid'
@@ -131,20 +167,6 @@ Resources:
           TargetGroupArn: !Ref TargetGroup
           Order: 2
 
-  PublicEndpointRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      ListenerArn: !Ref HTTPListener
-      Priority: 1
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - '/api/public'
-            - '/api/health'
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup
-
 Outputs:
   LoadBalancerDNS:
     Description: 'ALB DNS Name'
@@ -153,8 +175,8 @@ Outputs:
       Name: !Sub '${AWS::StackName}-ALB-DNS'
 
   LoadBalancerURL:
-    Description: 'ALB URL'
-    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+    Description: 'ALB URL (HTTPS with Cognito Auth)'
+    Value: !Sub 'https://${ApplicationLoadBalancer.DNSName}'
     Export:
       Name: !Sub '${AWS::StackName}-ALB-URL'
 
@@ -169,3 +191,13 @@ Outputs:
     Value: !Ref BackendSecurityGroup
     Export:
       Name: !Sub '${AWS::StackName}-Backend-SG-ID'
+
+  UserPoolClientId:
+    Description: 'ALB User Pool Client ID'
+    Value: !Ref ALBUserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClientId'
+
+  CognitoHostedUIURL:
+    Description: 'Cognito Hosted UI Login URL'
+    Value: !Sub 'https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${ALBUserPoolClient}&response_type=code&redirect_uri=https://${ApplicationLoadBalancer.DNSName}/oauth2/idpresponse'
