@@ -1,5 +1,15 @@
 # AWS Application Migration Service (MGN) - Student Demo Lab
 
+## 🎓 For Students: Start Here!
+
+**New to MGN?** Follow the simplified guide:  
+👉 **[STUDENT-DEMO.md](STUDENT-DEMO.md)** - Complete demo in 45 minutes!
+
+**For Instructors:**  
+👉 **[INSTRUCTOR-NOTES.md](INSTRUCTOR-NOTES.md)** - Teaching guide and tips
+
+---
+
 ## Overview
 
 This directory contains hands-on labs and demonstrations for learning AWS Application Migration Service (MGN), which is AWS's primary service for lift-and-shift migrations of physical, virtual, or cloud servers to AWS.
@@ -79,6 +89,8 @@ mgn/
 - Understanding of networking concepts (subnets, security groups, routing)
 
 ## Quick Start
+
+**👉 For a step-by-step beginner-friendly guide, see [STUDENT-DEMO.md](STUDENT-DEMO.md)**
 
 ### 1. Initialize MGN Service
 

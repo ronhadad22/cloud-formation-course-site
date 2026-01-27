@@ -158,88 +158,32 @@ Resources:
         - Key: Name
           Value: !Sub '${EnvironmentName}-Target-SG'
 
-  # IAM Role for MGN Replication Servers
-  MGNReplicationServerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${EnvironmentName}-MGN-Replication-Role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationReplicationServerPolicy'
-      Tags:
-        - Key: Name
-          Value: !Sub '${EnvironmentName}-MGN-Replication-Role'
-
-  MGNReplicationServerInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Replication-Profile'
-      Roles:
-        - !Ref MGNReplicationServerRole
-
-  # IAM Role for MGN Conversion Servers
-  MGNConversionServerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${EnvironmentName}-MGN-Conversion-Role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationConversionServerPolicy'
-      Tags:
-        - Key: Name
-          Value: !Sub '${EnvironmentName}-MGN-Conversion-Role'
-
-  MGNConversionServerInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Conversion-Profile'
-      Roles:
-        - !Ref MGNConversionServerRole
-
-  # IAM Role for MGN Agent (to be used by source servers)
-  MGNAgentRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${EnvironmentName}-MGN-Agent-Role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationAgentPolicy'
-      Tags:
-        - Key: Name
-          Value: !Sub '${EnvironmentName}-MGN-Agent-Role'
-
-  MGNAgentInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub '${EnvironmentName}-MGN-Agent-Profile'
-      Roles:
-        - !Ref MGNAgentRole
-
-  # IAM User for MGN Agent Installation (alternative to instance profile)
+  # IAM User for MGN Agent Installation
+  # Note: MGN will automatically create service-linked roles for replication/conversion servers
   MGNAgentUser:
     Type: AWS::IAM::User
     Properties:
       UserName: !Sub '${EnvironmentName}-MGN-Agent-User'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSApplicationMigrationAgentPolicy'
+      Policies:
+        - PolicyName: MGNAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'mgn:SendAgentMetricsForMgn'
+                  - 'mgn:SendAgentLogsForMgn'
+                  - 'mgn:RegisterAgentForMgn'
+                  - 'mgn:UpdateAgentSourcePropertiesForMgn'
+                  - 'mgn:UpdateAgentReplicationInfoForMgn'
+                  - 'mgn:UpdateAgentConversionInfoForMgn'
+                  - 'mgn:GetAgentInstallationAssetsForMgn'
+                  - 'mgn:GetAgentCommandForMgn'
+                  - 'mgn:GetAgentConfirmedResumeInfoForMgn'
+                  - 'mgn:GetAgentRuntimeConfigurationForMgn'
+                  - 'mgn:UpdateAgentBacklogForMgn'
+                  - 'mgn:GetAgentReplicationInfoForMgn'
+                Resource: '*'
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-MGN-Agent-User'
@@ -279,24 +223,6 @@ Outputs:
     Value: !Ref TargetSecurityGroup
     Export:
       Name: !Sub '${AWS::StackName}-Target-SG-ID'
-
-  MGNReplicationServerRoleArn:
-    Description: 'IAM Role ARN for MGN Replication Servers'
-    Value: !GetAtt MGNReplicationServerRole.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-Replication-Role-ARN'
-
-  MGNConversionServerRoleArn:
-    Description: 'IAM Role ARN for MGN Conversion Servers'
-    Value: !GetAtt MGNConversionServerRole.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-Conversion-Role-ARN'
-
-  MGNAgentRoleArn:
-    Description: 'IAM Role ARN for MGN Agent'
-    Value: !GetAtt MGNAgentRole.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-Agent-Role-ARN'
 
   MGNAgentAccessKeyId:
     Description: 'Access Key ID for MGN Agent User (use for agent installation)'
