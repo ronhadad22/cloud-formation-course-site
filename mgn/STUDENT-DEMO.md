@@ -87,6 +87,7 @@ aws cloudformation create-stack \
   --stack-name mgn-source \
   --template-body file://cloudformation/source-server-simulator.yaml \
   --parameters ParameterKey=KeyPairName,ParameterValue=your-key-name \
+  --capabilities CAPABILITY_NAMED_IAM \
   --region us-east-1
 
 # Wait for server to be ready
