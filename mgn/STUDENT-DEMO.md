@@ -43,14 +43,14 @@ aws mgn initialize-service --region us-east-1
 ```bash
 # This creates VPC, subnets, and security groups
 aws cloudformation create-stack \
-  --stack-name mgn-demo \
+  --stack-name mgn-prerequisites \
   --template-body file://cloudformation/mgn-prerequisites.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
   --region us-east-1
 
 # Wait 2-3 minutes for completion
 aws cloudformation wait stack-create-complete \
-  --stack-name mgn-demo \
+  --stack-name mgn-prerequisites \
   --region us-east-1
 
 echo "✅ Infrastructure ready!"
@@ -59,21 +59,37 @@ echo "✅ Infrastructure ready!"
 ### Get Your Credentials
 
 ```bash
-# Save these - you'll need them later!
-aws cloudformation describe-stacks \
-  --stack-name mgn-demo \
+# Get and save MGN agent credentials
+MGN_ACCESS_KEY=$(aws cloudformation describe-stacks \
+  --stack-name mgn-prerequisites \
   --region us-east-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`MGNAgentAccessKeyId`].OutputValue' \
-  --output text
+  --output text)
 
-aws cloudformation describe-stacks \
-  --stack-name mgn-demo \
+MGN_SECRET_KEY=$(aws cloudformation describe-stacks \
+  --stack-name mgn-prerequisites \
   --region us-east-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`MGNAgentSecretAccessKey`].OutputValue' \
-  --output text
+  --output text)
+
+# Display credentials
+echo "Access Key: $MGN_ACCESS_KEY"
+echo "Secret Key: $MGN_SECRET_KEY"
+
+# Save to file for reference
+cat > mgn-credentials.txt << EOF
+MGN Agent Credentials
+=====================
+Access Key: $MGN_ACCESS_KEY
+Secret Key: $MGN_SECRET_KEY
+
+Use these when installing the MGN agent in Step 3.
+EOF
+
+echo "✅ Credentials saved to mgn-credentials.txt"
 ```
 
-**💾 Copy these credentials somewhere safe!**
+**💾 Your credentials are now saved in `mgn-credentials.txt`**
 
 ---
 
@@ -135,11 +151,17 @@ wget -O ./aws-replication-installer-init.py \
 ### Install Agent
 
 ```bash
-# Use the credentials from Step 1
+# Use the credentials from Step 1 (saved in mgn-credentials.txt)
+# Replace with your actual Access Key and Secret Key
 sudo python3 aws-replication-installer-init.py \
   --region us-east-1 \
-  --aws-access-key-id YOUR_ACCESS_KEY \
-  --aws-secret-access-key YOUR_SECRET_KEY
+  --aws-access-key-id YOUR_ACCESS_KEY_FROM_STEP_1 \
+  --aws-secret-access-key YOUR_SECRET_KEY_FROM_STEP_1
+```
+
+**💡 Tip:** You can view your credentials anytime:
+```bash
+cat ~/path/to/mgn-credentials.txt
 ```
 
 **Expected output:**
@@ -215,7 +237,7 @@ You should see the **same purple page** - your app has been migrated! 🎉
 
 # Or manually delete stacks
 aws cloudformation delete-stack --stack-name mgn-source --region us-east-1
-aws cloudformation delete-stack --stack-name mgn-demo --region us-east-1
+aws cloudformation delete-stack --stack-name mgn-prerequisites --region us-east-1
 ```
 
 ---
@@ -232,14 +254,38 @@ aws cloudformation delete-stack --stack-name mgn-demo --region us-east-1
 
 ## Troubleshooting
 
-### Agent Installation Fails
+### Agent Installation Fails - "Installation failed" during sync
 
-**Problem:** `Failed to register with MGN service`
+**Problem:** Agent installs but fails at "Syncing the source server with the Application Migration Service Console"
+
+**Solution:**
+This is usually an IAM permissions issue. The credentials need additional permissions.
+
+**If you deployed the stack before [DATE]**, update it:
+```bash
+aws cloudformation update-stack \
+  --stack-name mgn-prerequisites \
+  --template-body file://cloudformation/mgn-prerequisites.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1
+
+# Wait for update
+aws cloudformation wait stack-update-complete \
+  --stack-name mgn-prerequisites \
+  --region us-east-1
+```
+
+Then retry the agent installation with the same credentials.
+
+### Agent Installation Fails - "Failed to register with MGN service"
+
+**Problem:** Cannot connect to MGN service
 
 **Solution:**
 - Check your credentials are correct
-- Verify source server has internet access
+- Verify source server has internet access (port 443 outbound)
 - Make sure MGN is initialized: `aws mgn describe-replication-configuration-templates --region us-east-1`
+- Check security group allows outbound HTTPS
 
 ### Server Not Showing in Console
 

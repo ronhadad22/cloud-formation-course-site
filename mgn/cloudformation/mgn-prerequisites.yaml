@@ -183,6 +183,13 @@ Resources:
                   - 'mgn:GetAgentRuntimeConfigurationForMgn'
                   - 'mgn:UpdateAgentBacklogForMgn'
                   - 'mgn:GetAgentReplicationInfoForMgn'
+                  - 'mgn:DescribeSourceServers'
+                  - 'mgn:GetChannelCommandsForMgn'
+                  - 'mgn:SendChannelCommandResultForMgn'
+                  - 'mgn:IssueClientCertificateForMgn'
+                  - 'mgn:TagResource'
+                  - 'mgn:UntagResource'
+                  - 'mgn:ListTagsForResource'
                 Resource: '*'
       Tags:
         - Key: Name
