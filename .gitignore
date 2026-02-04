@@ -4,6 +4,10 @@ aws-credentials.json
 *.pem
 *.key
 
+# MGN credentials - NEVER commit
+mgn/mgn-credentials.txt
+*credentials*.txt
+
 # Environment Variables
 .env
 .env.local
