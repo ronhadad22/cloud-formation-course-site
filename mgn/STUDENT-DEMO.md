@@ -39,40 +39,66 @@ cd mgn
 
 Choose the method that matches your AWS setup:
 
-**Option 1: Using SSO Profile (Mac/Linux):**
+---
+
+**Option 1: Configure AWS CLI with Access Keys (First Time Setup)**
+
+If you haven't configured AWS CLI before, run:
+
 ```bash
-# Replace YOUR_PROFILE_NAME with your actual profile name
-aws sso login --profile YOUR_PROFILE_NAME
-export AWS_PROFILE=YOUR_PROFILE_NAME
-export AWS_REGION=us-east-1
+aws configure
 ```
 
-**Option 1: Using SSO Profile (Windows PowerShell):**
-```powershell
-# Replace YOUR_PROFILE_NAME with your actual profile name
-aws sso login --profile YOUR_PROFILE_NAME
-$env:AWS_PROFILE = "YOUR_PROFILE_NAME"
-$env:AWS_REGION = "us-east-1"
+You will be prompted for:
+```
+AWS Access Key ID: YOUR_ACCESS_KEY
+AWS Secret Access Key: YOUR_SECRET_KEY
+Default region name: us-east-1
+Default output format: json
 ```
 
-**Option 2: Using Access Keys (Mac/Linux):**
+---
+
+**Option 2: Using Environment Variables (Mac/Linux):**
 ```bash
 export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
 export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
 export AWS_REGION=us-east-1
 ```
 
-**Option 2: Using Access Keys (Windows PowerShell):**
+**Option 2: Using Environment Variables (Windows PowerShell):**
 ```powershell
 $env:AWS_ACCESS_KEY_ID = "YOUR_ACCESS_KEY"
 $env:AWS_SECRET_ACCESS_KEY = "YOUR_SECRET_KEY"
 $env:AWS_REGION = "us-east-1"
 ```
 
+---
+
+**Option 3: Using SSO Profile (if your organization uses AWS SSO)**
+
+Mac/Linux:
+```bash
+aws sso login --profile YOUR_PROFILE_NAME
+export AWS_PROFILE=YOUR_PROFILE_NAME
+export AWS_REGION=us-east-1
+```
+
+Windows PowerShell:
+```powershell
+aws sso login --profile YOUR_PROFILE_NAME
+$env:AWS_PROFILE = "YOUR_PROFILE_NAME"
+$env:AWS_REGION = "us-east-1"
+```
+
+---
+
 **Verify your login:**
 ```bash
 aws sts get-caller-identity
 ```
+
+You should see your account ID and user ARN.
 
 ### Initialize MGN Service
 
