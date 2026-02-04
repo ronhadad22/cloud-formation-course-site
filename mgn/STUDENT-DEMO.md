@@ -37,11 +37,41 @@ cd mgn
 
 ### Login to AWS
 
+Choose the method that matches your AWS setup:
+
+**Option 1: Using SSO Profile (Mac/Linux):**
 ```bash
-# Login with your profile
-aws sso login --profile iitc-profile
-export AWS_PROFILE=iitc-profile
+# Replace YOUR_PROFILE_NAME with your actual profile name
+aws sso login --profile YOUR_PROFILE_NAME
+export AWS_PROFILE=YOUR_PROFILE_NAME
 export AWS_REGION=us-east-1
+```
+
+**Option 1: Using SSO Profile (Windows PowerShell):**
+```powershell
+# Replace YOUR_PROFILE_NAME with your actual profile name
+aws sso login --profile YOUR_PROFILE_NAME
+$env:AWS_PROFILE = "YOUR_PROFILE_NAME"
+$env:AWS_REGION = "us-east-1"
+```
+
+**Option 2: Using Access Keys (Mac/Linux):**
+```bash
+export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+export AWS_REGION=us-east-1
+```
+
+**Option 2: Using Access Keys (Windows PowerShell):**
+```powershell
+$env:AWS_ACCESS_KEY_ID = "YOUR_ACCESS_KEY"
+$env:AWS_SECRET_ACCESS_KEY = "YOUR_SECRET_KEY"
+$env:AWS_REGION = "us-east-1"
+```
+
+**Verify your login:**
+```bash
+aws sts get-caller-identity
 ```
 
 ### Initialize MGN Service
