@@ -25,8 +25,14 @@ Migrate a server from "on-premises" to AWS using AWS Application Migration Servi
 # Clone the course repository
 git clone https://github.com/ronhadad22/cloud-formation-course-site.git
 
+# Navigate to the repository
+cd cloud-formation-course-site
+
+# Switch to the release branch
+git checkout release
+
 # Navigate to MGN directory
-cd cloud-formation-course-site/mgn
+cd mgn
 
 # Delete instructor notes (not needed for students)
 rm -f INSTRUCTOR-NOTES.md
