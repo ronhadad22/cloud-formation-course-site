@@ -33,9 +33,6 @@ git checkout release
 
 # Navigate to MGN directory
 cd mgn
-
-# Delete instructor notes (not needed for students)
-rm -f INSTRUCTOR-NOTES.md
 ```
 
 ### Login to AWS
