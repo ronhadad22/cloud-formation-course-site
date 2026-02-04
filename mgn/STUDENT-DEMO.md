@@ -19,6 +19,19 @@ Migrate a server from "on-premises" to AWS using AWS Application Migration Servi
 
 ## Step 1: Setup (5 minutes)
 
+### Clone the Repository
+
+```bash
+# Clone the course repository
+git clone https://github.com/ronhadad22/cloud-formation-course-site.git
+
+# Navigate to MGN directory
+cd cloud-formation-course-site/mgn
+
+# Delete instructor notes (not needed for students)
+rm -f INSTRUCTOR-NOTES.md
+```
+
 ### Login to AWS
 
 ```bash
@@ -26,9 +39,6 @@ Migrate a server from "on-premises" to AWS using AWS Application Migration Servi
 aws sso login --profile iitc-profile
 export AWS_PROFILE=iitc-profile
 export AWS_REGION=us-east-1
-
-# Navigate to MGN directory
-cd /path/to/cloudformation/mgn
 ```
 
 ### Initialize MGN Service
