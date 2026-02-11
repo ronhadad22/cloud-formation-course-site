@@ -20,6 +20,7 @@ scp -i "$KEY_PATH" -r hospital-data/* ec2-user@${EC2_IP}:/tmp/hospital-data/
 
 # Move to EFS mount
 ssh -i "$KEY_PATH" ec2-user@${EC2_IP} << 'EOF'
+sudo mkdir -p /mnt/efs/hospital-data
 sudo cp -r /tmp/hospital-data/* /mnt/efs/hospital-data/
 sudo chown -R ec2-user:ec2-user /mnt/efs/hospital-data/
 rm -rf /tmp/hospital-data
