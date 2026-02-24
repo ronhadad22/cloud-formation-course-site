@@ -390,9 +390,11 @@ aws drs get-launch-configuration \
 
 The EC2 launch template controls how recovery instances are launched. You need to add a key pair and security group — without these you won't be able to SSH in or access the recovered app.
 
-**Part A — General launch settings:**
+> ⚠️ **Important:** There are two places to configure launch settings in DRS — the **Default settings** (under the left nav Settings menu, applies to future servers) and the **per-server settings** (under Source servers → your server → Launch settings tab). You must change the **per-server settings** on your specific source server. Changing only the Default settings will have no effect on existing servers.
 
-1. In the DRS console (`eu-west-1`), go to **Source servers** → click your server
+**Part A — General launch settings (per-server):**
+
+1. In the DRS console (`eu-west-1`), go to **Source servers** → click your source server
 2. Click the **Launch settings** tab
 3. Under **General launch settings**, click **Edit**
 4. Set:
@@ -408,10 +410,11 @@ The EC2 launch template controls how recovery instances are launched. You need t
    - **Key pair:** `drs-lab-key` (the key you created in the **target** region — `drs-lab-key-target.pem`)
    - **Security groups:** add `drs-lab-recovery-instance-sg` (use the value of `$RECOVERY_SG` — this SG allows SSH port 22 and HTTP port 80)
    - **Instance type:** `t3.small`
+   - **Network interfaces → Auto-assign public IP:** `Enable` (without this the recovery instance will have no public IP and you won't be able to reach the app)
 9. Click **Create template version**
 10. Set the new version as the **Default version**
 
-> ⚠️ Without the key pair you cannot SSH to the recovery instance. Without the security group the app will be inaccessible.
+> ⚠️ Without the key pair you cannot SSH to the recovery instance. Without the security group the app will be inaccessible. Without public IP enabled you won't be able to reach the instance at all.
 
 > **Q8:** Why might you want to change the instance type during failover? When would you keep it the same?
 
