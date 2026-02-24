@@ -1,0 +1,279 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS DRS Lab - Source Region Infrastructure
+  Deploys a payment processing web application for disaster recovery testing
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: drs-lab
+    Description: Environment name prefix for resources
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+  # ============================================
+  # VPC & Networking
+  # ============================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================
+  # Security Groups
+  # ============================================
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PayFlow App - SSH, HTTP, HTTPS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-sg
+
+  # ============================================
+  # IAM Role for EC2
+  # ============================================
+  AppInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AWSElasticDisasterRecoveryAgentInstallationPolicy
+      Policies:
+        - PolicyName: DRSAgentReplicationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - drs:SendAgentMetricsForDrs
+                  - drs:SendAgentLogsForDrs
+                  - drs:UpdateAgentSourcePropertiesForDrs
+                  - drs:UpdateAgentReplicationInfoForDrs
+                  - drs:UpdateAgentConversionInfoForDrs
+                  - drs:GetAgentCommandForDrs
+                  - drs:GetAgentConfirmedResumeInfoForDrs
+                  - drs:GetAgentRuntimeConfigurationForDrs
+                  - drs:UpdateAgentBacklogForDrs
+                  - drs:GetAgentReplicationInfoForDrs
+                  - drs:IssueAgentCertificateForDrs
+                Resource: !Sub arn:aws:drs:*:${AWS::AccountId}:source-server/*
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-role
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref AppInstanceRole
+
+  # ============================================
+  # EC2 Application Server (Payment Processing App)
+  # ============================================
+  AppServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      IamInstanceProfile: !Ref AppInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          yum update -y
+          yum install -y httpd jq
+
+          # Start web server
+          systemctl start httpd
+          systemctl enable httpd
+
+          # Create the PayFlow payment processing app
+          mkdir -p /var/www/html/api
+          mkdir -p /opt/payflow/{data,logs,config}
+
+          # Main page
+          echo '<html><head><title>PayFlow - Payment Processing</title><style>body{background:#0d47a1;color:white;text-align:center;font-family:Arial;padding:50px}table{margin:auto;text-align:left;color:white;border-collapse:collapse}td{padding:8px 16px}tr:nth-child(even){background:rgba(255,255,255,0.1)}.status{color:#4caf50;font-weight:bold}.region{color:#ffeb3b}</style></head><body><h1>PayFlow Payment Processing</h1><p>Secure Transaction Gateway</p><hr><h2>System Status</h2><table><tr><td>Service:</td><td class="status">OPERATIONAL</td></tr><tr><td>Region:</td><td class="region">${AWS::Region}</td></tr><tr><td>Instance:</td><td>${!HOSTNAME}</td></tr><tr><td>Transactions Today:</td><td id="txn">Loading...</td></tr></table><hr><p>API Endpoint: <code>/api/health</code> | <code>/api/transactions</code></p><p style="font-size:12px">DRS Disaster Recovery Lab - Training Environment</p><script>document.getElementById("txn").textContent=Math.floor(Math.random()*5000+1000)+" processed";</script></body></html>' > /var/www/html/index.html
+
+          # Health check API
+          echo '{"status":"healthy","service":"payflow","region":"${AWS::Region}","timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > /var/www/html/api/health
+
+          # Generate sample transaction data
+          cat > /opt/payflow/data/transactions.json << 'DATAEOF'
+          [
+            {"id":"TXN-001","amount":250.00,"currency":"USD","status":"completed","merchant":"Coffee Shop","timestamp":"2026-02-14T10:30:00Z"},
+            {"id":"TXN-002","amount":1500.00,"currency":"EUR","status":"completed","merchant":"Electronics Store","timestamp":"2026-02-14T10:31:00Z"},
+            {"id":"TXN-003","amount":45.99,"currency":"USD","status":"completed","merchant":"Gas Station","timestamp":"2026-02-14T10:32:00Z"},
+            {"id":"TXN-004","amount":899.00,"currency":"GBP","status":"pending","merchant":"Online Retailer","timestamp":"2026-02-14T10:33:00Z"},
+            {"id":"TXN-005","amount":12.50,"currency":"USD","status":"completed","merchant":"Parking","timestamp":"2026-02-14T10:34:00Z"}
+          ]
+          DATAEOF
+
+          # App configuration
+          cat > /opt/payflow/config/app.json << 'CFGEOF'
+          {
+            "service": "payflow-gateway",
+            "version": "2.1.0",
+            "region": "${AWS::Region}",
+            "max_tps": 10000,
+            "timeout_ms": 3000,
+            "retry_count": 3,
+            "encryption": "AES-256",
+            "compliance": ["PCI-DSS", "SOC2"]
+          }
+          CFGEOF
+
+          # Generate application logs
+          for i in $(seq 1 100); do
+            echo "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ) INFO  [payment-processor] Transaction TXN-$(printf '%05d' $i) processed successfully amount=$(shuf -i 10-5000 -n 1).$(shuf -i 10-99 -n 1) currency=USD merchant=merchant-$(shuf -i 1-50 -n 1)" >> /opt/payflow/logs/transactions.log
+          done
+
+          # Transactions API endpoint
+          echo '{"transactions":5,"total_amount":2707.49,"currency_breakdown":{"USD":308.49,"EUR":1500.00,"GBP":899.00},"status":"operational"}' > /var/www/html/api/transactions
+
+          # Signal that setup is complete
+          echo "PayFlow setup complete at $(date -u)" > /opt/payflow/setup-complete.txt
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-payflow-server
+        - Key: Project
+          Value: drs-disaster-recovery-lab
+        - Key: Application
+          Value: payflow
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+
+  SecurityGroupId:
+    Description: App Security Group ID
+    Value: !Ref AppSecurityGroup
+
+  AppServerInstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref AppServer
+
+  AppServerPublicIP:
+    Description: Application Server Public IP
+    Value: !GetAtt AppServer.PublicIp
+
+  AppServerPrivateIP:
+    Description: Application Server Private IP
+    Value: !GetAtt AppServer.PrivateIp
+
+  SourceRegion:
+    Description: Source region for DRS
+    Value: !Ref AWS::Region
