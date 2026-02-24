@@ -669,31 +669,31 @@ Answer these based on your experience:
 
 **Important:** Delete everything to avoid ongoing charges. DRS charges ~$0.028/hr per replicated server.
 
+> **Note on cleanup order:** DRS enforces a strict deletion sequence. You must terminate recovery instances before disconnecting source servers, and source servers must be deleted before the replication template can be removed. Running steps out of order produces a `ConflictException` — just re-run the blocked step after completing its dependency.
+
 ```bash
-# 1. Delete recovery instances in target region
-# DRS recovery instance IDs (ri-xxx) needed for disconnect
-RECOVERY_DRS_IDS=$(aws drs describe-recovery-instances \
+# 1. Terminate recovery instances and remove from DRS
+RECOVERY_IDS=$(aws drs describe-recovery-instances \
   --region $TARGET_REGION \
   --query 'items[].recoveryInstanceID' --output text)
 
-# EC2 instance IDs (i-xxx) needed for termination
-RECOVERY_EC2_IDS=$(aws drs describe-recovery-instances \
-  --region $TARGET_REGION \
-  --query 'items[].ec2InstanceID' --output text)
-
-for DRS_ID in $RECOVERY_DRS_IDS; do
-  aws drs disconnect-recovery-instance \
-    --recovery-instance-id $DRS_ID \
+for ID in $RECOVERY_IDS; do
+  aws drs terminate-recovery-instances \
+    --recovery-instance-ids $ID \
     --region $TARGET_REGION 2>/dev/null || true
 done
 
-for EC2_ID in $RECOVERY_EC2_IDS; do
-  aws ec2 terminate-instances \
+# Wait for EC2 terminations to complete before proceeding
+EC2_IDS=$(aws drs describe-recovery-instances \
+  --region $TARGET_REGION \
+  --query 'items[].ec2InstanceID' --output text)
+for EC2_ID in $EC2_IDS; do
+  aws ec2 wait instance-terminated \
     --instance-ids $EC2_ID \
     --region $TARGET_REGION 2>/dev/null || true
 done
 
-# 2. Disconnect source servers from DRS
+# 2. Disconnect and delete source servers from DRS
 SOURCE_SERVERS=$(aws drs describe-source-servers \
   --region $TARGET_REGION \
   --query 'items[].sourceServerID' --output text)
@@ -702,12 +702,46 @@ for SRV in $SOURCE_SERVERS; do
   aws drs disconnect-source-server \
     --source-server-id $SRV \
     --region $TARGET_REGION 2>/dev/null || true
+  sleep 5
   aws drs delete-source-server \
     --source-server-id $SRV \
     --region $TARGET_REGION 2>/dev/null || true
 done
 
-# 3. Delete replication configuration template
+# 2b. Delete DRS source networks (created automatically when agent registers)
+SOURCE_NETWORKS=$(aws drs describe-source-networks \
+  --region $TARGET_REGION \
+  --query 'items[].sourceNetworkID' --output text 2>/dev/null)
+
+for NET in $SOURCE_NETWORKS; do
+  aws drs delete-source-network \
+    --source-network-id $NET \
+    --region $TARGET_REGION 2>/dev/null || true
+done
+
+# 3. Delete DRS-created security groups (DRS creates these inside your VPC;
+#    CloudFormation cannot delete the VPC until these are removed)
+DRS_VPC_ID=$(aws cloudformation describe-stacks \
+  --stack-name drs-lab-target \
+  --region $TARGET_REGION \
+  --query 'Stacks[0].Outputs[?OutputKey==`DRSVPCID`].OutputValue' \
+  --output text 2>/dev/null || \
+  aws ec2 describe-vpcs \
+    --region $TARGET_REGION \
+    --filters "Name=tag:Name,Values=drs-lab-vpc" \
+    --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+
+for SG_ID in $(aws ec2 describe-security-groups \
+    --region $TARGET_REGION \
+    --filters "Name=vpc-id,Values=$DRS_VPC_ID" \
+    --query 'SecurityGroups[?GroupName!=`default`].GroupId' \
+    --output text 2>/dev/null); do
+  aws ec2 delete-security-group \
+    --group-id $SG_ID \
+    --region $TARGET_REGION 2>/dev/null || true
+done
+
+# 4. Delete replication configuration template
 TEMPLATE_ID=$(aws drs describe-replication-configuration-templates \
   --region $TARGET_REGION \
   --query 'items[0].replicationConfigurationTemplateID' --output text 2>/dev/null)
@@ -718,7 +752,7 @@ if [ "$TEMPLATE_ID" != "None" ] && [ -n "$TEMPLATE_ID" ]; then
     --region $TARGET_REGION 2>/dev/null || true
 fi
 
-# 4. Delete CloudFormation stack (source region)
+# 5. Delete CloudFormation stack (source region)
 aws cloudformation delete-stack \
   --stack-name drs-lab \
   --region $SOURCE_REGION
@@ -727,7 +761,7 @@ aws cloudformation wait stack-delete-complete \
   --stack-name drs-lab \
   --region $SOURCE_REGION
 
-# 5. Delete CloudFormation stack (target region)
+# 6. Delete CloudFormation stack (target region)
 aws cloudformation delete-stack \
   --stack-name drs-lab-target \
   --region $TARGET_REGION
@@ -736,7 +770,7 @@ aws cloudformation wait stack-delete-complete \
   --stack-name drs-lab-target \
   --region $TARGET_REGION
 
-# 6. Delete key pairs
+# 7. Delete key pairs
 aws ec2 delete-key-pair --key-name drs-lab-key --region $SOURCE_REGION 2>/dev/null || true
 aws ec2 delete-key-pair --key-name drs-lab-key --region $TARGET_REGION 2>/dev/null || true
 rm -f drs-lab-key-source.pem drs-lab-key-target.pem
