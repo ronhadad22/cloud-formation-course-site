@@ -76,8 +76,21 @@ SOURCE REGION (eu-central-1)          TARGET REGION (eu-west-1)
 
 - AWS account with admin access
 - AWS CLI configured (`aws configure` or SSO)
-- SSH key pair created in **both** regions
+- Git installed
 - Two regions available (this lab uses `eu-central-1` as source, `eu-west-1` as target)
+
+---
+
+## Phase 0: Get the Lab Files
+
+Clone the course repository and navigate to the DRS lab directory:
+
+```bash
+git clone https://github.com/ronhadad22/cloud-formation-course-site.git
+cd cloud-formation-course-site/aws-drs-lab
+```
+
+All commands in this lab should be run from the `aws-drs-lab/` directory unless otherwise noted.
 
 ---
 
