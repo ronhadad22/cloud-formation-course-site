@@ -178,23 +178,7 @@ Resources:
           systemctl start httpd
           systemctl enable httpd
 
-          cat > /var/www/html/index.html << 'HTMLEOF'
-          <html>
-          <head><title>Healthcare App - Backup Lab</title></head>
-          <body style="background:#1b5e20;color:white;text-align:center;font-family:Arial;padding:50px">
-          <h1>🏥 Healthcare Application Server</h1>
-          <p>AWS Backup Disaster Recovery Lab</p>
-          <hr>
-          <h2>System Status</h2>
-          <table style="margin:auto;text-align:left;color:white">
-          <tr><td>📁 EFS Mount:</td><td>/mnt/efs/hospital-data</td></tr>
-          <tr><td>📦 S3 Bucket:</td><td>Logs & Billing</td></tr>
-          <tr><td>🔒 Backup:</td><td>AWS Backup Enabled</td></tr>
-          </table>
-          <hr>
-          <p style="font-size:12px">This is a training environment - DO NOT store real patient data</p>
-          </body></html>
-          HTMLEOF
+          echo '<html><head><title>Healthcare App - Backup Lab</title></head><body style="background:#1b5e20;color:white;text-align:center;font-family:Arial;padding:50px"><h1>Healthcare Application Server</h1><p>AWS Backup Disaster Recovery Lab</p><hr><h2>System Status</h2><table style="margin:auto;text-align:left;color:white"><tr><td>EFS Mount:</td><td>/mnt/efs/hospital-data</td></tr><tr><td>S3 Bucket:</td><td>Logs and Billing</td></tr><tr><td>Backup:</td><td>AWS Backup Enabled</td></tr></table><hr><p style="font-size:12px">This is a training environment - DO NOT store real patient data</p></body></html>' > /var/www/html/index.html
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-app-server

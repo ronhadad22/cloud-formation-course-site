@@ -1,0 +1,446 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Two VPCs with VPC Peering Connection and Private Hosted Zone.
+  VPC-A (Production) and VPC-B (Development) with peering, route tables, EC2 instances,
+  and Route 53 Private Hosted Zone for DNS resolution across VPCs.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: vpc-peering-demo
+    Description: Environment name prefix
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+
+  # ============================================
+  # VPC A - Production (10.0.0.0/16)
+  # ============================================
+  VpcA:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-production
+
+  VpcAPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcA
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-public
+
+  VpcAPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcA
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-private
+
+  VpcAInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-igw
+
+  VpcAIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VpcA
+      InternetGatewayId: !Ref VpcAInternetGateway
+
+  VpcAPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-public-rt
+
+  VpcAPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcAIGWAttachment
+    Properties:
+      RouteTableId: !Ref VpcAPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VpcAInternetGateway
+
+  VpcAPublicSubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcAPublicSubnet
+      RouteTableId: !Ref VpcAPublicRouteTable
+
+  VpcAPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-private-rt
+
+  VpcAPrivateSubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcAPrivateSubnet
+      RouteTableId: !Ref VpcAPrivateRouteTable
+
+  # ============================================
+  # VPC B - Development (10.1.0.0/16)
+  # ============================================
+  VpcB:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-development
+
+  VpcBPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcB
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-public
+
+  VpcBPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcB
+      CidrBlock: 10.1.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-private
+
+  VpcBInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-igw
+
+  VpcBIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VpcB
+      InternetGatewayId: !Ref VpcBInternetGateway
+
+  VpcBPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-public-rt
+
+  VpcBPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcBIGWAttachment
+    Properties:
+      RouteTableId: !Ref VpcBPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VpcBInternetGateway
+
+  VpcBPublicSubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcBPublicSubnet
+      RouteTableId: !Ref VpcBPublicRouteTable
+
+  VpcBPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-private-rt
+
+  VpcBPrivateSubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcBPrivateSubnet
+      RouteTableId: !Ref VpcBPrivateRouteTable
+
+  # ============================================
+  # VPC Peering Connection
+  # ============================================
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref VpcA
+      PeerVpcId: !Ref VpcB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-to-vpc-b
+
+  # ============================================
+  # Peering Routes - VPC A → VPC B
+  # ============================================
+  VpcAPublicPeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcAPublicRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  VpcAPrivatePeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcAPrivateRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  # ============================================
+  # Peering Routes - VPC B → VPC A
+  # ============================================
+  VpcBPublicPeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcBPublicRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  VpcBPrivatePeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcBPrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  # ============================================
+  # Security Groups
+  # ============================================
+  VpcASecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and ICMP from anywhere, HTTP from VPC B
+      VpcId: !Ref VpcA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH from anywhere
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.1.0.0/16
+          Description: ICMP (ping) from VPC B
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.1.0.0/16
+          Description: HTTP from VPC B
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-sg
+
+  VpcBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and ICMP from anywhere, HTTP from VPC A
+      VpcId: !Ref VpcB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH from anywhere
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+          Description: ICMP (ping) from VPC A
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/16
+          Description: HTTP from VPC A
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-sg
+
+  # ============================================
+  # EC2 Instances
+  # ============================================
+  VpcAInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref VpcAPublicSubnet
+      SecurityGroupIds:
+        - !Ref VpcASecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body style='background:#2d1b69;color:white;text-align:center;font-family:Arial;padding:50px'>
+          <h1>🏢 VPC A - Production Server</h1>
+          <p>Instance: $(hostname)</p>
+          <p>Private IP: $(hostname -I | awk '{print $1}')</p>
+          <p>VPC CIDR: 10.0.0.0/16</p>
+          <hr>
+          <p>If you can see this from VPC B, peering is working!</p>
+          </body></html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-instance
+
+  VpcBInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref VpcBPublicSubnet
+      SecurityGroupIds:
+        - !Ref VpcBSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body style='background:#1b4d3e;color:white;text-align:center;font-family:Arial;padding:50px'>
+          <h1>🔧 VPC B - Development Server</h1>
+          <p>Instance: $(hostname)</p>
+          <p>Private IP: $(hostname -I | awk '{print $1}')</p>
+          <p>VPC CIDR: 10.1.0.0/16</p>
+          <hr>
+          <p>If you can see this from VPC A, peering is working!</p>
+          </body></html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-instance
+
+  # ============================================
+  # Route 53 Private Hosted Zone
+  # ============================================
+  PrivateHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: internal.company.local
+      VPCs:
+        - VPCId: !Ref VpcA
+          VPCRegion: !Ref AWS::Region
+        - VPCId: !Ref VpcB
+          VPCRegion: !Ref AWS::Region
+      HostedZoneConfig:
+        Comment: !Sub Private hosted zone for ${EnvironmentName}
+      HostedZoneTags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-zone
+
+  # ============================================
+  # DNS Records
+  # ============================================
+  ProductionServerRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: production.internal.company.local
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt VpcAInstance.PrivateIp
+
+  DevelopmentServerRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: dev.internal.company.local
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt VpcBInstance.PrivateIp
+
+  WebAppRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: webapp.internal.company.local
+      Type: CNAME
+      TTL: 60
+      ResourceRecords:
+        - production.internal.company.local
+
+Outputs:
+  VpcAId:
+    Description: VPC A ID
+    Value: !Ref VpcA
+
+  VpcBId:
+    Description: VPC B ID
+    Value: !Ref VpcB
+
+  VPCPeeringConnectionId:
+    Description: VPC Peering Connection ID
+    Value: !Ref VPCPeeringConnection
+
+  VpcAInstancePublicIP:
+    Description: VPC A Instance Public IP (for SSH)
+    Value: !GetAtt VpcAInstance.PublicIp
+
+  VpcAInstancePrivateIP:
+    Description: VPC A Instance Private IP (for peering test)
+    Value: !GetAtt VpcAInstance.PrivateIp
+
+  VpcBInstancePublicIP:
+    Description: VPC B Instance Public IP (for SSH)
+    Value: !GetAtt VpcBInstance.PublicIp
+
+  VpcBInstancePrivateIP:
+    Description: VPC B Instance Private IP (for peering test)
+    Value: !GetAtt VpcBInstance.PrivateIp
+
+  PrivateHostedZoneId:
+    Description: Route 53 Private Hosted Zone ID
+    Value: !Ref PrivateHostedZone
+
+  PrivateHostedZoneName:
+    Description: Private Hosted Zone domain name
+    Value: internal.company.local
+
+  ProductionDNS:
+    Description: DNS name for Production server
+    Value: production.internal.company.local
+
+  DevelopmentDNS:
+    Description: DNS name for Development server
+    Value: dev.internal.company.local
+
+  WebAppDNS:
+    Description: CNAME alias for web application
+    Value: webapp.internal.company.local

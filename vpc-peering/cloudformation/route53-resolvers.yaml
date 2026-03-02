@@ -1,0 +1,545 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Route 53 Inbound and Outbound Resolvers Demo.
+  Simulates hybrid DNS between "on-premises" (VPC B) and "AWS cloud" (VPC A)
+  using Route 53 Resolver endpoints.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: r53-resolver-demo
+    Description: Environment name prefix
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+
+  # ============================================
+  # VPC A - AWS Cloud (10.0.0.0/16)
+  # ============================================
+  VpcA:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-cloud
+
+  VpcASubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcA
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-subnet-1
+
+  VpcASubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcA
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-subnet-2
+
+  VpcAInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-igw
+
+  VpcAIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VpcA
+      InternetGatewayId: !Ref VpcAInternetGateway
+
+  VpcARouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-rt
+
+  VpcADefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcAIGWAttachment
+    Properties:
+      RouteTableId: !Ref VpcARouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VpcAInternetGateway
+
+  VpcASubnet1RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcASubnet1
+      RouteTableId: !Ref VpcARouteTable
+
+  VpcASubnet2RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcASubnet2
+      RouteTableId: !Ref VpcARouteTable
+
+  # ============================================
+  # VPC B - "On-Premises" Simulation (10.1.0.0/16)
+  # ============================================
+  VpcB:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-onprem
+
+  VpcBSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcB
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-subnet-1
+
+  VpcBSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcB
+      CidrBlock: 10.1.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-subnet-2
+
+  VpcBInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-igw
+
+  VpcBIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VpcB
+      InternetGatewayId: !Ref VpcBInternetGateway
+
+  VpcBRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-rt
+
+  VpcBDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcBIGWAttachment
+    Properties:
+      RouteTableId: !Ref VpcBRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VpcBInternetGateway
+
+  VpcBSubnet1RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcBSubnet1
+      RouteTableId: !Ref VpcBRouteTable
+
+  VpcBSubnet2RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VpcBSubnet2
+      RouteTableId: !Ref VpcBRouteTable
+
+  # ============================================
+  # VPC Peering (simulates VPN/Direct Connect)
+  # ============================================
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref VpcA
+      PeerVpcId: !Ref VpcB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-cloud-to-onprem
+
+  VpcAPeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcARouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  VpcBPeeringRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VpcBRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  # ============================================
+  # Security Groups
+  # ============================================
+  VpcASecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC A - Allow SSH, ICMP, HTTP, DNS
+      VpcId: !Ref VpcA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.1.0.0/16
+          Description: ICMP from on-prem
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.1.0.0/16
+          Description: HTTP from on-prem
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.1.0.0/16
+          Description: DNS TCP from on-prem
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.1.0.0/16
+          Description: DNS UDP from on-prem
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-a-sg
+
+  ResolverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Route 53 Resolver endpoints
+      VpcId: !Ref VpcA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.0.0.0/8
+          Description: DNS TCP
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.0.0.0/8
+          Description: DNS UDP
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-resolver-sg
+
+  VpcBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC B (on-prem) - Allow SSH, ICMP, HTTP, DNS
+      VpcId: !Ref VpcB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+          Description: ICMP from cloud
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/16
+          Description: HTTP from cloud
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.0.0.0/16
+          Description: DNS TCP from cloud
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 10.0.0.0/16
+          Description: DNS UDP from cloud
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-b-sg
+
+  # ============================================
+  # Private Hosted Zone (AWS Cloud)
+  # ============================================
+  CloudPrivateZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: cloud.internal
+      VPCs:
+        - VPCId: !Ref VpcA
+          VPCRegion: !Ref AWS::Region
+      HostedZoneConfig:
+        Comment: AWS Cloud private DNS zone
+      HostedZoneTags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-cloud-zone
+
+  CloudAppRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref CloudPrivateZone
+      Name: app.cloud.internal
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt VpcAInstance.PrivateIp
+
+  CloudDbRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref CloudPrivateZone
+      Name: db.cloud.internal
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt VpcAInstance.PrivateIp
+
+  CloudApiRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref CloudPrivateZone
+      Name: api.cloud.internal
+      Type: CNAME
+      TTL: 60
+      ResourceRecords:
+        - app.cloud.internal
+
+  # ============================================
+  # Route 53 Inbound Resolver Endpoint
+  # Allows on-premises to resolve AWS private DNS
+  # ============================================
+  InboundResolverEndpoint:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Direction: INBOUND
+      IpAddresses:
+        - SubnetId: !Ref VpcASubnet1
+        - SubnetId: !Ref VpcASubnet2
+      SecurityGroupIds:
+        - !Ref ResolverSecurityGroup
+      Name: !Sub ${EnvironmentName}-inbound
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-inbound-resolver
+
+  # ============================================
+  # Route 53 Outbound Resolver Endpoint
+  # Allows AWS to resolve on-premises DNS
+  # ============================================
+  OutboundResolverEndpoint:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Direction: OUTBOUND
+      IpAddresses:
+        - SubnetId: !Ref VpcASubnet1
+        - SubnetId: !Ref VpcASubnet2
+      SecurityGroupIds:
+        - !Ref ResolverSecurityGroup
+      Name: !Sub ${EnvironmentName}-outbound
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-outbound-resolver
+
+  # ============================================
+  # Forwarding Rule - Forward onprem.local to VPC B DNS
+  # ============================================
+  OnPremForwardingRule:
+    Type: AWS::Route53Resolver::ResolverRule
+    Properties:
+      DomainName: onprem.local
+      Name: !Sub ${EnvironmentName}-forward-to-onprem
+      RuleType: FORWARD
+      ResolverEndpointId: !Ref OutboundResolverEndpoint
+      TargetIps:
+        - Ip: 10.1.0.2
+          Port: 53
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-onprem-rule
+
+  OnPremForwardingRuleAssociation:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref OnPremForwardingRule
+      VPCId: !Ref VpcA
+      Name: !Sub ${EnvironmentName}-onprem-rule-assoc
+
+  # ============================================
+  # EC2 Instances
+  # ============================================
+  VpcAInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref VpcASubnet1
+      SecurityGroupIds:
+        - !Ref VpcASecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd bind-utils
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body style='background:#1a237e;color:white;text-align:center;font-family:Arial;padding:50px'>
+          <h1>AWS Cloud Server</h1>
+          <p>Hostname: $(hostname)</p>
+          <p>Private IP: $(hostname -I | awk '{print \$1}')</p>
+          <p>DNS: app.cloud.internal</p>
+          <hr>
+          <p>This server is resolvable via Route 53 Inbound Resolver</p>
+          </body></html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-cloud-instance
+
+  VpcBInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref VpcBSubnet1
+      SecurityGroupIds:
+        - !Ref VpcBSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y bind bind-utils httpd
+
+          # Configure BIND as on-premises DNS server
+          cat > /etc/named.conf << 'NAMEDEOF'
+          options {
+              listen-on port 53 { any; };
+              listen-on-v6 port 53 { any; };
+              directory "/var/named";
+              allow-query { any; };
+              recursion yes;
+              forward first;
+              forwarders { 10.1.0.2; };
+          };
+
+          zone "onprem.local" IN {
+              type master;
+              file "/var/named/onprem.local.zone";
+          };
+          NAMEDEOF
+
+          # Create on-premises DNS zone file
+          cat > /var/named/onprem.local.zone << ZONEEOF
+          \$TTL 60
+          @   IN  SOA ns1.onprem.local. admin.onprem.local. (
+                      2024010101  ; Serial
+                      3600        ; Refresh
+                      900         ; Retry
+                      604800      ; Expire
+                      60 )        ; Minimum TTL
+          @       IN  NS  ns1.onprem.local.
+          ns1     IN  A   $(hostname -I | awk '{print \$1}')
+          erp     IN  A   $(hostname -I | awk '{print \$1}')
+          mail    IN  A   $(hostname -I | awk '{print \$1}')
+          intranet IN A   $(hostname -I | awk '{print \$1}')
+          legacy  IN  CNAME erp.onprem.local.
+          ZONEEOF
+
+          # Start BIND DNS server
+          systemctl start named
+          systemctl enable named
+
+          # Start web server
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body style='background:#b71c1c;color:white;text-align:center;font-family:Arial;padding:50px'>
+          <h1>On-Premises Server</h1>
+          <p>Hostname: $(hostname)</p>
+          <p>Private IP: $(hostname -I | awk '{print \$1}')</p>
+          <p>DNS: erp.onprem.local</p>
+          <hr>
+          <p>Running BIND DNS server for onprem.local zone</p>
+          <p>Records: erp, mail, intranet, legacy (CNAME)</p>
+          </body></html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-onprem-instance
+
+Outputs:
+  VpcAId:
+    Description: VPC A (Cloud) ID
+    Value: !Ref VpcA
+
+  VpcBId:
+    Description: VPC B (On-Premises) ID
+    Value: !Ref VpcB
+
+  CloudInstancePublicIP:
+    Description: Cloud instance public IP (for SSH)
+    Value: !GetAtt VpcAInstance.PublicIp
+
+  CloudInstancePrivateIP:
+    Description: Cloud instance private IP
+    Value: !GetAtt VpcAInstance.PrivateIp
+
+  OnPremInstancePublicIP:
+    Description: On-premises instance public IP (for SSH)
+    Value: !GetAtt VpcBInstance.PublicIp
+
+  OnPremInstancePrivateIP:
+    Description: On-premises instance private IP
+    Value: !GetAtt VpcBInstance.PrivateIp
+
+  OnPremDNSServerIP:
+    Description: On-premises DNS server IP (VPC B instance)
+    Value: !GetAtt VpcBInstance.PrivateIp
+
+  InboundResolverEndpointId:
+    Description: Inbound Resolver Endpoint ID
+    Value: !Ref InboundResolverEndpoint
+
+  OutboundResolverEndpointId:
+    Description: Outbound Resolver Endpoint ID
+    Value: !Ref OutboundResolverEndpoint
+
+  CloudPrivateZone:
+    Description: Cloud private hosted zone domain
+    Value: cloud.internal
+
+  OnPremDNSZone:
+    Description: On-premises DNS zone domain
+    Value: onprem.local

@@ -1,0 +1,744 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Keycloak + Terraform Lab — AWS infrastructure with ALB, ACM, Route53.
+  Keycloak runs on EC2 via Docker Compose. App server runs Node.js.
+  Keycloak configuration (realm, users, roles, client) is managed by Terraform.
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 key pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+  DomainName:
+    Type: String
+    Default: iitc-course.com
+    Description: Root domain name (must have a Route53 hosted zone)
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Default: Z0614017C84WMAE7E1F1
+    Description: Route53 Hosted Zone ID for the domain
+
+  KeycloakSubdomain:
+    Type: String
+    Default: keycloak-tf
+    Description: Subdomain for Keycloak (e.g. keycloak-tf -> keycloak-tf.iitc-course.com)
+
+  AppSubdomain:
+    Type: String
+    Default: hr-portal-tf
+    Description: Subdomain for the HR Portal app (e.g. hr-portal-tf -> hr-portal-tf.iitc-course.com)
+
+  KeycloakAdminPassword:
+    Type: String
+    Default: KeycloakLab2024!
+    NoEcho: true
+    Description: Keycloak admin password
+
+Resources:
+  # ============================================================
+  # VPC & Networking (2 AZs required for ALB)
+  # ============================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-igw
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-public-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================
+  # Security Groups
+  # ============================================================
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB - allow HTTPS and HTTP from internet
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-alb-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS from internet
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP redirect to HTTPS
+
+  KeycloakSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Keycloak server - ALB + SSH
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-keycloak-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSG
+          Description: Keycloak HTTP from ALB
+
+  AppServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App server - ALB + SSH
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-app-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref ALBSG
+          Description: Node.js app from ALB
+
+  # ============================================================
+  # ACM Certificate (wildcard for *.domain)
+  # ============================================================
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Sub "*.${DomainName}"
+      SubjectAlternativeNames:
+        - !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub "*.${DomainName}"
+          HostedZoneId: !Ref HostedZoneId
+
+  # ============================================================
+  # Application Load Balancer
+  # ============================================================
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: keycloak-tf-lab-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups:
+        - !Ref ALBSG
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-alb
+
+  # HTTPS Listener with default 404
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref Certificate
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: text/plain
+            MessageBody: "Not Found"
+
+  # HTTP -> HTTPS redirect
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+
+  # Keycloak Target Group
+  KeycloakTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: keycloak-tf-lab-kc-tg
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /health/ready
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Targets:
+        - Id: !Ref KeycloakInstance
+
+  # App Target Group
+  AppTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: keycloak-tf-lab-app-tg
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Targets:
+        - Id: !Ref AppServerInstance
+
+  # Host-based routing: keycloak-tf.domain -> Keycloak TG
+  KeycloakListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HTTPSListener
+      Priority: 10
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${KeycloakSubdomain}.${DomainName}"
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref KeycloakTG
+
+  # Host-based routing: hr-portal-tf.domain -> App TG
+  AppListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HTTPSListener
+      Priority: 20
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${AppSubdomain}.${DomainName}"
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref AppTG
+
+  # ============================================================
+  # Route53 DNS Records
+  # ============================================================
+  KeycloakDNS:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "${KeycloakSubdomain}.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+
+  AppDNS:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "${AppSubdomain}.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+
+  # ============================================================
+  # IAM Role for EC2 (SSM access)
+  # ============================================================
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: keycloak-tf-lab-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # ============================================================
+  # Keycloak Server (EC2 + Docker Compose)
+  # ============================================================
+  KeycloakInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref KeycloakSG
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-keycloak-server
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > /var/log/keycloak-setup.log 2>&1
+
+          # Install Docker
+          yum update -y
+          yum install -y docker jq
+          systemctl enable --now docker
+          usermod -aG docker ec2-user
+
+          # Install Docker Compose plugin
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          # Create Keycloak docker-compose file
+          mkdir -p /home/ec2-user/keycloak
+          cat > /home/ec2-user/keycloak/docker-compose.yml <<'COMPOSE'
+          services:
+            postgres:
+              image: postgres:16-alpine
+              container_name: keycloak-db
+              environment:
+                POSTGRES_DB: keycloak
+                POSTGRES_USER: keycloak
+                POSTGRES_PASSWORD: keycloak_db_pass
+              volumes:
+                - pgdata:/var/lib/postgresql/data
+              networks:
+                - keycloak-net
+              restart: unless-stopped
+
+            keycloak:
+              image: quay.io/keycloak/keycloak:26.0
+              container_name: keycloak
+              environment:
+                KC_DB: postgres
+                KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+                KC_DB_USERNAME: keycloak
+                KC_DB_PASSWORD: keycloak_db_pass
+                KC_BOOTSTRAP_ADMIN_USERNAME: admin
+                KC_BOOTSTRAP_ADMIN_PASSWORD: ${KeycloakAdminPassword}
+                KC_PROXY_HEADERS: xforwarded
+                KC_HTTP_ENABLED: "true"
+                KC_HOSTNAME_STRICT: "false"
+                KC_HEALTH_ENABLED: "true"
+              command: start-dev
+              ports:
+                - "8080:8080"
+              depends_on:
+                - postgres
+              networks:
+                - keycloak-net
+              restart: unless-stopped
+
+          volumes:
+            pgdata:
+
+          networks:
+            keycloak-net:
+              driver: bridge
+          COMPOSE
+
+          echo "https://${KeycloakSubdomain}.${DomainName}" > /home/ec2-user/keycloak-url.txt
+          chown -R ec2-user:ec2-user /home/ec2-user/keycloak
+
+          # Start Keycloak
+          cd /home/ec2-user/keycloak
+          docker compose up -d
+
+          echo "Keycloak setup complete" > /home/ec2-user/setup-complete.txt
+
+  # ============================================================
+  # App Server (Node.js HR Portal)
+  # ============================================================
+  AppServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref AppServerSG
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: keycloak-tf-lab-app-server
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -x
+          exec > /var/log/app-setup.log 2>&1
+
+          # Install Node.js 20
+          yum update -y
+          yum install -y gcc-c++ make
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          for i in 1 2 3; do
+            yum install -y nodejs && break
+            echo "Retry $i: nodejs install failed, cleaning cache..."
+            yum clean all
+            sleep 5
+          done
+
+          # Create app directory
+          mkdir -p /home/ec2-user/app
+          cd /home/ec2-user/app
+
+          # Create package.json
+          cat > package.json <<'PKGJSON'
+          {
+            "name": "keycloak-demo-app",
+            "version": "1.0.0",
+            "description": "HR Portal protected by Keycloak OIDC",
+            "main": "server.js",
+            "scripts": {
+              "start": "node server.js"
+            },
+            "dependencies": {
+              "express": "^4.18.2",
+              "express-session": "^1.17.3",
+              "passport": "^0.7.0",
+              "passport-openidconnect": "^0.1.2",
+              "dotenv": "^16.3.1"
+            }
+          }
+          PKGJSON
+
+          # Create the web application
+          cat > server.js <<'SERVERJS'
+          const express = require('express');
+          const session = require('express-session');
+          const passport = require('passport');
+          const OpenIDConnectStrategy = require('passport-openidconnect');
+          require('dotenv').config();
+
+          const app = express();
+          const PORT = 3000;
+
+          app.set('trust proxy', 1);
+
+          app.use(session({
+            secret: 'keycloak-lab-secret-key-change-in-production',
+            resave: false,
+            saveUninitialized: false,
+            cookie: { secure: true, maxAge: 3600000 }
+          }));
+
+          app.use(passport.initialize());
+          app.use(passport.session());
+
+          passport.serializeUser((user, done) => done(null, user));
+          passport.deserializeUser((user, done) => done(null, user));
+
+          const KEYCLOAK_URL = process.env.KEYCLOAK_URL || 'https://keycloak.example.com';
+          const REALM = process.env.KEYCLOAK_REALM || 'demo-realm';
+          const CLIENT_ID = process.env.KEYCLOAK_CLIENT_ID || 'demo-app';
+          const CLIENT_SECRET = process.env.KEYCLOAK_CLIENT_SECRET || '';
+          const APP_URL = process.env.APP_URL || 'https://hr-portal.example.com';
+
+          passport.use('oidc', new OpenIDConnectStrategy({
+            issuer: KEYCLOAK_URL + '/realms/' + REALM,
+            authorizationURL: KEYCLOAK_URL + '/realms/' + REALM + '/protocol/openid-connect/auth',
+            tokenURL: KEYCLOAK_URL + '/realms/' + REALM + '/protocol/openid-connect/token',
+            userInfoURL: KEYCLOAK_URL + '/realms/' + REALM + '/protocol/openid-connect/userinfo',
+            clientID: CLIENT_ID,
+            clientSecret: CLIENT_SECRET,
+            callbackURL: APP_URL + '/auth/callback',
+            scope: 'openid profile email roles'
+          }, function(issuer, profile, done) {
+            return done(null, profile);
+          }));
+
+          function getUserDisplay(user) {
+            return user ? (user.displayName || user.username || 'User') : '';
+          }
+
+          function getUserRoles(user) {
+            var realmRoles = (user && user._json && user._json.realm_access && user._json.realm_access.roles) ? user._json.realm_access.roles : [];
+            var clientRoles = (user && user._json && user._json.resource_access && user._json.resource_access[CLIENT_ID] && user._json.resource_access[CLIENT_ID].roles) ? user._json.resource_access[CLIENT_ID].roles : [];
+            return { realm: realmRoles, client: clientRoles, all: realmRoles.concat(clientRoles) };
+          }
+
+          var CSS = '* { margin: 0; padding: 0; box-sizing: border-box; } body { font-family: Segoe UI, Arial, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; } .navbar { background: #1e293b; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b82f6; } .navbar h1 { color: #3b82f6; font-size: 1.5rem; } .btn { padding: 8px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; cursor: pointer; border: none; font-size: 0.9rem; } .btn-primary { background: #3b82f6; color: white; } .btn-danger { background: #ef4444; color: white; } .container { max-width: 1000px; margin: 40px auto; padding: 0 20px; } .card { background: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 20px; border: 1px solid #334155; } .card h2 { color: #3b82f6; margin-bottom: 12px; } .card h3 { color: #f59e0b; margin-bottom: 8px; } table { width: 100%; border-collapse: collapse; margin-top: 12px; } th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid #334155; } th { color: #94a3b8; } .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; margin: 2px; } .badge-admin { background: #ef4444; color: white; } .badge-manager { background: #f59e0b; color: #1e293b; } .badge-employee { background: #3b82f6; color: white; } .badge-public { background: #6b7280; color: white; } .badge-role { background: #3b82f6; color: white; } .hero { text-align: center; padding: 60px 20px; } .hero h2 { font-size: 2rem; margin-bottom: 16px; } .hero p { color: #94a3b8; font-size: 1.1rem; margin-bottom: 24px; } .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; } .nav-links { display: flex; gap: 12px; align-items: center; } pre { background: #0f172a; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; color: #94a3b8; } .status-green { color: #22c55e; } .status-red { color: #ef4444; }';
+
+          // Home page
+          app.get('/', function(req, res) {
+            var user = req.user;
+            var navContent = user
+              ? '<span>Welcome, <strong>' + getUserDisplay(user) + '</strong></span> <a href="/dashboard" class="btn btn-primary">Dashboard</a> <a href="/logout" class="btn btn-danger">Logout</a>'
+              : '<span class="badge badge-public">Not authenticated</span> <a href="/login" class="btn btn-primary">Sign In with Keycloak</a>';
+            var heroBtn = !user ? '<a href="/login" class="btn btn-primary" style="font-size:1.1rem;padding:12px 32px;">Sign In with Keycloak &rarr;</a>' : '';
+            res.send('<!DOCTYPE html><html><head><title>HR Portal - Keycloak + Terraform Demo</title><style>' + CSS + '</style></head><body>' +
+              '<nav class="navbar"><h1>&#127970; HR Portal</h1><div class="nav-links">' + navContent + '</div></nav>' +
+              '<div class="container"><div class="hero"><h2>Welcome to the HR Portal</h2>' +
+              '<p>This application is protected by <strong>Keycloak</strong> using OpenID Connect (OIDC).</p>' +
+              '<p>Keycloak configuration managed by <strong>Terraform</strong> (realm, users, roles, client).</p>' + heroBtn + '</div>' +
+              '<div class="grid">' +
+              '<div class="card"><h3>&#128203; /dashboard</h3><p>Employee dashboard</p><span class="badge badge-employee">Any authenticated user</span></div>' +
+              '<div class="card"><h3>&#128176; /salary</h3><p>Salary information</p><span class="badge badge-manager">manager / admin</span></div>' +
+              '<div class="card"><h3>&#9881; /admin</h3><p>Admin panel</p><span class="badge badge-admin">admin only</span></div>' +
+              '</div></div></body></html>');
+          });
+
+          app.get('/login', passport.authenticate('oidc'));
+
+          app.get('/auth/callback',
+            passport.authenticate('oidc', { failureRedirect: '/' }),
+            function(req, res) { res.redirect('/dashboard'); }
+          );
+
+          function ensureAuthenticated(req, res, next) {
+            if (req.isAuthenticated()) return next();
+            res.redirect('/login');
+          }
+
+          function requireRole(role) {
+            return function(req, res, next) {
+              if (!req.isAuthenticated()) return res.redirect('/login');
+              var r = getUserRoles(req.user);
+              if (r.all.indexOf(role) !== -1 || r.all.indexOf('admin') !== -1) return next();
+              res.status(403).send('<!DOCTYPE html><html><head><title>Access Denied</title><style>' + CSS + '</style></head><body>' +
+                '<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;">' +
+                '<div class="card" style="text-align:center;border:2px solid #ef4444;max-width:500px;">' +
+                '<h2 style="color:#ef4444;">&#128683; Access Denied</h2>' +
+                '<p>You need the <strong>' + role + '</strong> role.</p>' +
+                '<p>Your roles: ' + (r.all.join(', ') || 'none') + '</p>' +
+                '<p><a href="/dashboard" style="color:#3b82f6;">&larr; Dashboard</a> | <a href="/" style="color:#3b82f6;">Home</a></p>' +
+                '</div></div></body></html>');
+            };
+          }
+
+          // Dashboard
+          app.get('/dashboard', ensureAuthenticated, function(req, res) {
+            var user = req.user;
+            var r = getUserRoles(user);
+            var json = user._json || {};
+            var realmBadges = r.realm.map(function(x) { return '<span class="badge badge-role">' + x + '</span>'; }).join(' ') || 'none';
+            var clientBadges = r.client.map(function(x) { return '<span class="badge badge-role">' + x + '</span>'; }).join(' ') || 'none';
+            res.send('<!DOCTYPE html><html><head><title>Dashboard - HR Portal</title><style>' + CSS + '</style></head><body>' +
+              '<nav class="navbar"><h1>&#127970; HR Portal</h1><div class="nav-links"><a href="/" class="btn btn-primary">Home</a><a href="/salary" class="btn btn-primary">Salary</a><a href="/admin" class="btn btn-primary">Admin</a><a href="/logout" class="btn btn-danger">Logout</a></div></nav>' +
+              '<div class="container">' +
+              '<div class="card"><h2>&#128100; Your Profile</h2><table>' +
+              '<tr><th>Field</th><th>Value</th></tr>' +
+              '<tr><td>Display Name</td><td>' + getUserDisplay(user) + '</td></tr>' +
+              '<tr><td>Username</td><td>' + (json.preferred_username || 'N/A') + '</td></tr>' +
+              '<tr><td>Email</td><td>' + (json.email || 'N/A') + '</td></tr>' +
+              '<tr><td>Email Verified</td><td>' + (json.email_verified || false) + '</td></tr>' +
+              '<tr><td>Issuer</td><td>' + (json.iss || 'N/A') + '</td></tr>' +
+              '</table></div>' +
+              '<div class="card"><h2>&#128273; Your Roles</h2>' +
+              '<p><strong>Realm roles:</strong> ' + realmBadges + '</p>' +
+              '<p style="margin-top:8px"><strong>Client roles:</strong> ' + clientBadges + '</p></div>' +
+              '<div class="card"><h2>&#128269; Raw ID Token Claims</h2><pre>' + JSON.stringify(json, null, 2) + '</pre></div>' +
+              '</div></body></html>');
+          });
+
+          // Salary page
+          app.get('/salary', requireRole('manager'), function(req, res) {
+            res.send('<!DOCTYPE html><html><head><title>Salary - HR Portal</title><style>' + CSS + ' .navbar { border-bottom-color: #f59e0b; } .card h2 { color: #f59e0b; }</style></head><body>' +
+              '<nav class="navbar"><h1>&#128176; Salary Information</h1><div class="nav-links"><a href="/dashboard" class="btn btn-primary">Dashboard</a><a href="/logout" class="btn btn-danger">Logout</a></div></nav>' +
+              '<div class="container"><div class="card"><h2>Employee Salary Data</h2>' +
+              '<p style="color:#94a3b8;margin-bottom:12px;">Requires <strong>manager</strong> or <strong>admin</strong> role.</p>' +
+              '<table><tr><th>Employee</th><th>Department</th><th>Salary</th><th>Status</th></tr>' +
+              '<tr><td>Alice Johnson</td><td>Engineering</td><td>$125,000</td><td class="status-green">Active</td></tr>' +
+              '<tr><td>Bob Smith</td><td>Marketing</td><td>$95,000</td><td class="status-green">Active</td></tr>' +
+              '<tr><td>Carol Williams</td><td>Engineering</td><td>$135,000</td><td class="status-green">Active</td></tr>' +
+              '<tr><td>David Brown</td><td>HR</td><td>$88,000</td><td style="color:#f59e0b">On Leave</td></tr>' +
+              '</table></div></div></body></html>');
+          });
+
+          // Admin page
+          app.get('/admin', requireRole('admin'), function(req, res) {
+            var username = (req.user && req.user._json) ? req.user._json.preferred_username : 'unknown';
+            res.send('<!DOCTYPE html><html><head><title>Admin - HR Portal</title><style>' + CSS + ' .navbar { border-bottom-color: #ef4444; } .card h2 { color: #ef4444; }</style></head><body>' +
+              '<nav class="navbar"><h1>&#9881; Admin Panel</h1><div class="nav-links"><a href="/dashboard" class="btn btn-primary">Dashboard</a><a href="/logout" class="btn btn-danger">Logout</a></div></nav>' +
+              '<div class="container">' +
+              '<div class="card"><h2>System Administration</h2>' +
+              '<p style="color:#94a3b8;margin-bottom:12px;">Requires <strong>admin</strong> role.</p>' +
+              '<table><tr><th>Service</th><th>Status</th><th>Uptime</th></tr>' +
+              '<tr><td>Keycloak IdP</td><td class="status-green">Running</td><td>99.9%</td></tr>' +
+              '<tr><td>HR Database</td><td class="status-green">Running</td><td>99.7%</td></tr>' +
+              '<tr><td>Email Service</td><td class="status-green">Running</td><td>98.5%</td></tr>' +
+              '<tr><td>Backup System</td><td class="status-red">Maintenance</td><td>95.2%</td></tr>' +
+              '</table></div>' +
+              '<div class="card"><h2>Audit Log</h2><table>' +
+              '<tr><th>Time</th><th>User</th><th>Action</th></tr>' +
+              '<tr><td>2 min ago</td><td>' + username + '</td><td>Accessed admin panel</td></tr>' +
+              '<tr><td>15 min ago</td><td>system</td><td>Backup completed</td></tr>' +
+              '<tr><td>1 hour ago</td><td>admin</td><td>User role updated</td></tr>' +
+              '</table></div></div></body></html>');
+          });
+
+          // Token info API
+          app.get('/api/tokeninfo', ensureAuthenticated, function(req, res) {
+            var r = getUserRoles(req.user);
+            res.json({
+              user: req.user._json,
+              realm_roles: r.realm,
+              client_roles: r.client,
+              session_id: req.sessionID
+            });
+          });
+
+          // Logout
+          app.get('/logout', function(req, res) {
+            req.logout(function() {
+              req.session.destroy(function() {
+                var logoutUrl = KEYCLOAK_URL + '/realms/' + REALM + '/protocol/openid-connect/logout?post_logout_redirect_uri=' + encodeURIComponent(APP_URL) + '&client_id=' + CLIENT_ID;
+                res.redirect(logoutUrl);
+              });
+            });
+          });
+
+          app.listen(PORT, '0.0.0.0', function() {
+            console.log('HR Portal running on port ' + PORT);
+            console.log('Keycloak URL: ' + KEYCLOAK_URL);
+            console.log('Realm: ' + REALM);
+          });
+          SERVERJS
+
+          # Create .env template (Terraform will generate the real one)
+          cat > .env.template <<'ENVTPL'
+          KEYCLOAK_URL=https://keycloak-tf.iitc-course.com
+          KEYCLOAK_REALM=demo-realm
+          KEYCLOAK_CLIENT_ID=demo-app
+          KEYCLOAK_CLIENT_SECRET=<WILL_BE_SET_BY_TERRAFORM>
+          APP_URL=https://hr-portal-tf.iitc-course.com
+          ENVTPL
+
+          chown -R ec2-user:ec2-user /home/ec2-user/app
+
+          # Install dependencies
+          cd /home/ec2-user/app
+          sudo -u ec2-user npm install
+
+          echo "App server setup complete" > /home/ec2-user/setup-complete.txt
+
+Outputs:
+  KeycloakURL:
+    Description: Keycloak Admin Console URL
+    Value: !Sub "https://${KeycloakSubdomain}.${DomainName}/admin"
+
+  AppURL:
+    Description: HR Portal Application URL
+    Value: !Sub "https://${AppSubdomain}.${DomainName}"
+
+  KeycloakInternalURL:
+    Description: Keycloak URL for Terraform provider
+    Value: !Sub "https://${KeycloakSubdomain}.${DomainName}"
+
+  KeycloakAdminPassword:
+    Description: Default admin password
+    Value: !Ref KeycloakAdminPassword
+
+  KeycloakServerIP:
+    Description: Keycloak server public IP
+    Value: !GetAtt KeycloakInstance.PublicIp
+
+  AppServerIP:
+    Description: App server public IP
+    Value: !GetAtt AppServerInstance.PublicIp
+
+  KeycloakServerSSH:
+    Description: SSH to Keycloak server
+    Value: !Sub "ssh -i <key>.pem ec2-user@${KeycloakInstance.PublicIp}"
+
+  AppServerSSH:
+    Description: SSH to App server
+    Value: !Sub "ssh -i <key>.pem ec2-user@${AppServerInstance.PublicIp}"
+
+  ALBDNSName:
+    Description: ALB DNS name
+    Value: !GetAtt ALB.DNSName
