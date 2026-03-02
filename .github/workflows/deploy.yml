@@ -4,7 +4,7 @@ on:
   push:
     branches: [release]
     paths:
-      - 'app/**'
+      - 'cicd-lab/app/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
@@ -68,7 +68,7 @@ jobs:
             --build-arg APP_VERSION=$VERSION \
             -t $IMAGE \
             -t $IMAGE_LATEST \
-            ./app
+            ./cicd-lab/app
 
           echo "📤 Pushing to ECR..."
           docker push $IMAGE
