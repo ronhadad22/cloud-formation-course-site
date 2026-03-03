@@ -113,7 +113,7 @@ Resources:
   EC2Role:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: cicd-lab-ec2-role
+      RoleName: !Sub '${AWS::StackName}-ec2-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
