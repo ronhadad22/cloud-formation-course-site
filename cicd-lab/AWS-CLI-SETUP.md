@@ -43,26 +43,6 @@ To make them permanent (user-level):
 
 Then restart PowerShell.
 
-### Windows Command Prompt (CMD)
-
-Set environment variables for the current session:
-
-```cmd
-set AWS_ACCESS_KEY_ID=<your-access-key-id>
-set AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
-set AWS_REGION=eu-west-1
-```
-
-To make them permanent, use `setx`:
-
-```cmd
-setx AWS_ACCESS_KEY_ID "<your-access-key-id>"
-setx AWS_SECRET_ACCESS_KEY "<your-secret-access-key>"
-setx AWS_REGION "eu-west-1"
-```
-
-Then restart CMD.
-
 ### Verify (All Platforms)
 
 ```bash
@@ -118,11 +98,6 @@ export AWS_PROFILE=my-lab-profile
 **Windows PowerShell:**
 ```powershell
 $env:AWS_PROFILE="my-lab-profile"
-```
-
-**Windows CMD:**
-```cmd
-set AWS_PROFILE=my-lab-profile
 ```
 
 Or use `--profile` flag with each command:
