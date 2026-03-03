@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: eu-west-1
+  AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPO: cicd-lab-app
 
 jobs:
