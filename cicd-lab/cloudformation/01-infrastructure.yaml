@@ -1,0 +1,279 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CI/CD Lab — EC2 instance with Docker for GitHub Actions deployment pipeline.
+  Deploys a VPC, security group, and EC2 instance ready to run Docker containers.
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 key pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+    Description: EC2 instance type
+
+Resources:
+  # ============================================================
+  # VPC & Networking
+  # ============================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: cicd-lab-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: cicd-lab-igw
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: cicd-lab-public-subnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: cicd-lab-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================
+  # Security Group
+  # ============================================================
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CI/CD Lab - SSH + HTTP + App
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: cicd-lab-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+          Description: App port
+
+  # ============================================================
+  # IAM Role (ECR pull access)
+  # ============================================================
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cicd-lab-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # ============================================================
+  # ECR Repository
+  # ============================================================
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: cicd-lab-app
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+  # ============================================================
+  # EC2 Instance with Docker
+  # ============================================================
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref AppSG
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: cicd-lab-app-server
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > /var/log/cicd-setup.log 2>&1
+
+          # Install Docker
+          yum update -y
+          yum install -y docker jq git
+          systemctl enable --now docker
+          usermod -aG docker ec2-user
+
+          # Install Docker Compose plugin
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          # Login to ECR (instance profile provides creds)
+          aws ecr get-login-password --region ${AWS::Region} | \
+            docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+
+          # Create deploy directory
+          mkdir -p /home/ec2-user/app
+          cat > /home/ec2-user/app/docker-compose.yml <<'COMPOSE'
+          services:
+            app:
+              image: APP_IMAGE_PLACEHOLDER
+              container_name: cicd-app
+              ports:
+                - "80:3000"
+              restart: unless-stopped
+              environment:
+                - PORT=3000
+                - APP_VERSION=1.0.0
+          COMPOSE
+
+          # Create deploy script used by GitHub Actions
+          cat > /home/ec2-user/deploy.sh <<'DEPLOY'
+          #!/bin/bash
+          set -e
+          IMAGE=$1
+
+          # Get region from instance metadata with retry
+          REGION=$(curl -s --max-time 5 http://169.254.169.254/latest/meta-data/placement/region || echo "eu-west-1")
+          export AWS_DEFAULT_REGION=$REGION
+
+          # Get account ID
+          ACCOUNT=$(aws sts get-caller-identity --region $REGION --query Account --output text)
+
+          echo "Deploying image: $IMAGE"
+          echo "Region: $REGION"
+          echo "Account: $ACCOUNT"
+
+          # Login to ECR (non-interactive)
+          aws ecr get-login-password --region $REGION | \
+            docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com 2>&1
+
+          # Update docker-compose with new image
+          cd /home/ec2-user/app
+          sed -i "s|image:.*|image: $IMAGE|" docker-compose.yml
+
+          # Pull and restart
+          docker compose pull 2>&1
+          docker compose up -d 2>&1
+
+          echo "Deployed successfully: $IMAGE"
+          docker ps
+          DEPLOY
+          chmod +x /home/ec2-user/deploy.sh
+
+          chown -R ec2-user:ec2-user /home/ec2-user/app /home/ec2-user/deploy.sh
+
+          echo "Setup complete" > /home/ec2-user/setup-complete.txt
+
+Outputs:
+  AppServerPublicIP:
+    Description: Public IP of the app server
+    Value: !GetAtt AppInstance.PublicIp
+
+  AppServerInstanceId:
+    Description: Instance ID
+    Value: !Ref AppInstance
+
+  AppURL:
+    Description: Application URL
+    Value: !Sub "http://${AppInstance.PublicIp}"
+
+  ECRRepositoryURI:
+    Description: ECR repository URI
+    Value: !GetAtt ECRRepository.RepositoryUri
+
+  SSHCommand:
+    Description: SSH into the server
+    Value: !Sub "ssh -i <key>.pem ec2-user@${AppInstance.PublicIp}"
+
+  Region:
+    Description: Deployment region
+    Value: !Ref AWS::Region
+
+  AccountId:
+    Description: AWS Account ID
+    Value: !Ref AWS::AccountId
