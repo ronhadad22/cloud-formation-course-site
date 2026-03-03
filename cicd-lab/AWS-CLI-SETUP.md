@@ -80,15 +80,43 @@ aws sts get-caller-identity
 
 ---
 
-## Option 3: Named Profiles
+## Option 3: Named Profiles (with SSO)
 
-If you have multiple AWS accounts, use named profiles:
+If you have multiple AWS accounts or use AWS SSO, configure a named profile.
+
+### For AWS SSO Users
+
+If your organization uses AWS SSO, configure SSO first:
+
+```bash
+aws configure sso
+```
+
+Follow the prompts:
+- **SSO start URL**: Your organization's SSO URL (e.g., `https://my-company.awsapps.com/start`)
+- **SSO region**: The region where SSO is configured (e.g., `us-east-1`)
+- **Account**: Select your AWS account
+- **Role**: Select your IAM role
+- **CLI default region**: `eu-west-1`
+- **CLI profile name**: `my-lab-profile`
+
+Then login to activate the session:
+
+```bash
+aws sso login --profile my-lab-profile
+```
+
+### For Standard IAM Users
+
+If you're using standard IAM credentials with multiple profiles:
 
 ```bash
 aws configure --profile my-lab-profile
 ```
 
-Then use the profile with the `AWS_PROFILE` environment variable:
+### Using the Profile
+
+Set the profile with the `AWS_PROFILE` environment variable:
 
 **Linux / macOS:**
 ```bash
@@ -105,6 +133,8 @@ Or use `--profile` flag with each command:
 ```bash
 aws cloudformation deploy --stack-name cicd-lab --profile my-lab-profile ...
 ```
+
+**Note:** If using SSO, run `aws sso login --profile my-lab-profile` when your session expires.
 
 ---
 
