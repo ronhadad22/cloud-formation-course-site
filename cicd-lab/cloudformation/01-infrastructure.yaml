@@ -217,8 +217,19 @@ Resources:
           set -e
           IMAGE=$1
 
-          # Get region from instance metadata with retry
-          REGION=$(curl -s --max-time 5 http://169.254.169.254/latest/meta-data/placement/region || echo "eu-west-1")
+          # Get region from instance metadata or IMDSv2
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || echo "")
+          if [ -n "$TOKEN" ]; then
+            REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "")
+          else
+            REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "")
+          fi
+          
+          # If metadata fails, try AWS CLI
+          if [ -z "$REGION" ]; then
+            REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+          fi
+          
           export AWS_DEFAULT_REGION=$REGION
 
           # Get account ID
