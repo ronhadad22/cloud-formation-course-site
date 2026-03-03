@@ -25,9 +25,9 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 
 ## Prerequisites
 
-- AWS CLI configured (access keys or environment variables)
-- GitHub account
-- EC2 Key Pair in `eu-west-1`
+- **AWS CLI configured** — See [AWS-CLI-SETUP.md](AWS-CLI-SETUP.md) for instructions
+- **GitHub account**
+- **EC2 Key Pair** in `eu-west-1` region ([Create one](https://console.aws.amazon.com/ec2/v2/home?region=eu-west-1#KeyPairs:) if needed)
 
 ---
 
