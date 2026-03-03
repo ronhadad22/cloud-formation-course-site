@@ -37,16 +37,19 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 2. Click **Fork**
 3. **Important:** Uncheck "Copy the main branch only" (we need the `cicd-lab` branch)
 4. Click **Create fork**
-5. **Enable GitHub Actions** in your fork:
-   - Go to your forked repo → **Actions** tab
-   - Click **"I understand my workflows, go ahead and enable them"**
-6. Clone your fork locally:
+5. Clone your fork locally:
 
 ```bash
 git clone https://github.com/<YOUR-USERNAME>/cloud-formation-course-site.git
 cd cloud-formation-course-site
 git checkout cicd-lab
 ```
+
+6. **Set default branch and enable GitHub Actions:**
+   - Go to your forked repo → **Settings** → **General** → **Default branch**
+   - Change default branch from `main` to `cicd-lab` and confirm
+   - Go to the **Actions** tab
+   - Click **"I understand my workflows, go ahead and enable them"**
 
 ---
 
