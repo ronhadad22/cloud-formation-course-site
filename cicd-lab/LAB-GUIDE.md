@@ -40,8 +40,7 @@ aws cloudformation deploy \
   --stack-name cicd-lab \
   --template-file cicd-lab/cloudformation/01-infrastructure.yaml \
   --parameter-overrides KeyPairName=<YOUR-KEY-PAIR-NAME> \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --region eu-west-1
+  --capabilities CAPABILITY_NAMED_IAM
 ```
 
 **Wait ~3 minutes** for the stack to finish.
@@ -51,8 +50,7 @@ Get the stack outputs:
 ```bash
 aws cloudformation describe-stacks \
   --stack-name cicd-lab \
-  --query 'Stacks[0].Outputs' --output table \
-  --region eu-west-1
+  --query 'Stacks[0].Outputs' --output table
 ```
 
 Write down:
@@ -173,8 +171,7 @@ Creates all AWS resources: VPC, EC2, ECR, Security Group, IAM Role.
 ## Cleanup
 
 ```bash
-aws cloudformation delete-stack --stack-name cicd-lab \
-  --region eu-west-1
+aws cloudformation delete-stack --stack-name cicd-lab
 ```
 
 ---
