@@ -34,8 +34,10 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 ## Step 1 — Fork and Clone the Repo
 
 1. Go to https://github.com/ronhadad22/cloud-formation-course-site
-2. Click **Fork** → create a fork under your account
-3. Clone your fork locally:
+2. Click **Fork**
+3. **Important:** Uncheck "Copy the main branch only" (we need the `cicd-lab` branch)
+4. Click **Create fork**
+5. Clone your fork locally:
 
 ```bash
 git clone https://github.com/<YOUR-USERNAME>/cloud-formation-course-site.git
