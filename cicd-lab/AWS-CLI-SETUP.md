@@ -4,6 +4,8 @@ Before starting the lab, you need to configure the AWS CLI so it can authenticat
 
 ## Option 1: Environment Variables (Recommended)
 
+### Linux / macOS
+
 Set these environment variables in your terminal:
 
 ```bash
@@ -21,7 +23,47 @@ echo 'export AWS_REGION=eu-west-1' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-**Verify:**
+### Windows PowerShell
+
+Set environment variables for the current session:
+
+```powershell
+$env:AWS_ACCESS_KEY_ID="<your-access-key-id>"
+$env:AWS_SECRET_ACCESS_KEY="<your-secret-access-key>"
+$env:AWS_REGION="eu-west-1"
+```
+
+To make them permanent (user-level):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable('AWS_ACCESS_KEY_ID', '<your-access-key-id>', 'User')
+[System.Environment]::SetEnvironmentVariable('AWS_SECRET_ACCESS_KEY', '<your-secret-access-key>', 'User')
+[System.Environment]::SetEnvironmentVariable('AWS_REGION', 'eu-west-1', 'User')
+```
+
+Then restart PowerShell.
+
+### Windows Command Prompt (CMD)
+
+Set environment variables for the current session:
+
+```cmd
+set AWS_ACCESS_KEY_ID=<your-access-key-id>
+set AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
+set AWS_REGION=eu-west-1
+```
+
+To make them permanent, use `setx`:
+
+```cmd
+setx AWS_ACCESS_KEY_ID "<your-access-key-id>"
+setx AWS_SECRET_ACCESS_KEY "<your-secret-access-key>"
+setx AWS_REGION "eu-west-1"
+```
+
+Then restart CMD.
+
+### Verify (All Platforms)
 
 ```bash
 aws sts get-caller-identity
@@ -68,8 +110,19 @@ aws configure --profile my-lab-profile
 
 Then use the profile with the `AWS_PROFILE` environment variable:
 
+**Linux / macOS:**
 ```bash
 export AWS_PROFILE=my-lab-profile
+```
+
+**Windows PowerShell:**
+```powershell
+$env:AWS_PROFILE="my-lab-profile"
+```
+
+**Windows CMD:**
+```cmd
+set AWS_PROFILE=my-lab-profile
 ```
 
 Or use `--profile` flag with each command:
