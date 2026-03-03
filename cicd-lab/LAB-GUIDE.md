@@ -31,7 +31,21 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 
 ---
 
-## Step 1 — Deploy the Infrastructure
+## Step 1 — Fork and Clone the Repo
+
+1. Go to the GitHub repository your instructor shared
+2. Click **Fork** → create a fork under your account
+3. Clone your fork locally:
+
+```bash
+git clone <YOUR-FORK-URL>
+cd <REPO-NAME>
+git checkout cicd-lab
+```
+
+---
+
+## Step 2 — Deploy the Infrastructure
 
 This creates: VPC, Security Group, EC2 instance (with Docker), ECR repository, IAM role.
 
@@ -60,20 +74,6 @@ Write down:
 
 ---
 
-## Step 2 — Fork the Repo
-
-1. Go to the GitHub repository your instructor shared
-2. Click **Fork** → create a fork under your account
-3. Clone your fork locally:
-
-```bash
-git clone <YOUR-FORK-URL>
-cd <REPO-NAME>
-git checkout cicd-lab
-```
-
----
-
 ## Step 3 — Configure GitHub Secrets
 
 In your **forked repo** → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
@@ -84,7 +84,7 @@ Add these 3 secrets:
 |-------------|-------|
 | `AWS_ACCESS_KEY_ID` | Your IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | Your IAM secret key |
-| `EC2_INSTANCE_ID` | Instance ID from Step 1 |
+| `EC2_INSTANCE_ID` | Instance ID from Step 2 |
 
 > Your IAM user needs these permissions: `AmazonEC2ContainerRegistryPowerUser`, `AmazonSSMFullAccess`, `AmazonEC2ReadOnlyAccess`
 
@@ -117,7 +117,7 @@ git push
 
 ## Step 6 — Verify
 
-Open the **App URL** from Step 1 in your browser:
+Open the **App URL** from Step 2 in your browser:
 
 ```
 http://<EC2-PUBLIC-IP>
