@@ -37,7 +37,10 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 2. Click **Fork**
 3. **Important:** Uncheck "Copy the main branch only" (we need the `cicd-lab` branch)
 4. Click **Create fork**
-5. Clone your fork locally:
+5. **Enable GitHub Actions** in your fork:
+   - Go to your forked repo → **Actions** tab
+   - Click **"I understand my workflows, go ahead and enable them"**
+6. Clone your fork locally:
 
 ```bash
 git clone https://github.com/<YOUR-USERNAME>/cloud-formation-course-site.git
@@ -182,6 +185,8 @@ aws cloudformation delete-stack --stack-name cicd-lab
 
 | Problem | Solution |
 |---------|----------|
+| **Actions tab not showing workflows** | Go to your fork → **Actions** tab → Click "I understand my workflows, go ahead and enable them" |
+| **Pipeline not triggering on push** | GitHub Actions are disabled by default on forks - see Step 1 to enable them |
 | Pipeline fails at ECR login | Check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` secrets |
 | SSM deploy fails | Make sure EC2 instance is running and has SSM agent |
 | App not loading in browser | Wait 2-3 min after stack creation for Docker to install |
