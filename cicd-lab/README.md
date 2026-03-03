@@ -23,5 +23,5 @@ See **[LAB-GUIDE.md](LAB-GUIDE.md)** for step-by-step instructions.
 
 ```bash
 aws cloudformation delete-stack --stack-name cicd-lab \
-  --region eu-west-1 --profile <YOUR-PROFILE>
+  --region eu-west-1
 ```

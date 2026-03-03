@@ -25,7 +25,7 @@ git push → GitHub Actions → Build Docker Image → Push to ECR → Deploy to
 
 ## Prerequisites
 
-- AWS CLI configured with your profile
+- AWS CLI configured (access keys or environment variables)
 - GitHub account
 - EC2 Key Pair in `eu-west-1`
 
@@ -41,7 +41,7 @@ aws cloudformation deploy \
   --template-file cicd-lab/cloudformation/01-infrastructure.yaml \
   --parameter-overrides KeyPairName=<YOUR-KEY-PAIR-NAME> \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region eu-west-1 --profile <YOUR-PROFILE>
+  --region eu-west-1
 ```
 
 **Wait ~3 minutes** for the stack to finish.
@@ -52,7 +52,7 @@ Get the stack outputs:
 aws cloudformation describe-stacks \
   --stack-name cicd-lab \
   --query 'Stacks[0].Outputs' --output table \
-  --region eu-west-1 --profile <YOUR-PROFILE>
+  --region eu-west-1
 ```
 
 Write down:
@@ -174,7 +174,7 @@ Creates all AWS resources: VPC, EC2, ECR, Security Group, IAM Role.
 
 ```bash
 aws cloudformation delete-stack --stack-name cicd-lab \
-  --region eu-west-1 --profile <YOUR-PROFILE>
+  --region eu-west-1
 ```
 
 ---
