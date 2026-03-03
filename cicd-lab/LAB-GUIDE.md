@@ -88,23 +88,23 @@ Write down:
 
 In your **forked repo** → **Settings** → **Secrets and variables** → **Actions** → **Secrets** → **New repository secret**
 
-Add these 3 secrets:
+Add these 2 secrets:
 
 | Secret Name | Value |
 |-------------|-------|
 | `AWS_ACCESS_KEY_ID` | Your IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | Your IAM secret key |
-| `EC2_INSTANCE_ID` | Instance ID from Step 2 |
 
 ### Add Variables
 
 Go to **Settings** → **Secrets and variables** → **Actions** → **Variables** → **New repository variable**
 
-Add this variable:
+Add these 2 variables:
 
 | Variable Name | Value |
 |---------------|-------|
 | `AWS_REGION` | The region you deployed in (e.g. `us-east-1`, `eu-west-1`) |
+| `EC2_INSTANCE_ID` | Instance ID from Step 2 (e.g. `i-0abc123...`) |
 
 > Your IAM user needs these permissions: `AmazonEC2ContainerRegistryPowerUser`, `AmazonSSMFullAccess`, `AmazonEC2ReadOnlyAccess`
 
