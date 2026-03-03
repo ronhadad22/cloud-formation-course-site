@@ -2,7 +2,7 @@ name: CI/CD Pipeline - Build, Push & Deploy
 
 on:
   push:
-    branches: [release]
+    branches: [cicd-lab]
     paths:
       - 'cicd-lab/app/**'
       - '.github/workflows/deploy.yml'
