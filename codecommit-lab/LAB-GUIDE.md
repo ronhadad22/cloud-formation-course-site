@@ -96,11 +96,25 @@ git clone <CodeRepositoryCloneUrlHttp>
 cd codecommit-lab-app
 ```
 
-Copy the application code:
+Copy the application code from your GitHub clone:
 
 ```bash
-cp -r ../codecommit-lab/app/* .
-cp ../codecommit-lab/buildspec.yml .
+# Assuming you cloned the course repo to ~/cloud-formation-course-site
+cp -r ~/cloud-formation-course-site/codecommit-lab/app/* .
+cp ~/cloud-formation-course-site/codecommit-lab/buildspec.yml .
+```
+
+**Or** download the files directly from GitHub:
+
+```bash
+# Create app directory
+mkdir -p app
+
+# Download files
+curl -o app/server.js https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/server.js
+curl -o app/package.json https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/package.json
+curl -o app/Dockerfile https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/Dockerfile
+curl -o buildspec.yml https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/buildspec.yml
 ```
 
 Commit and push:
