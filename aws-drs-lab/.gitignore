@@ -1,5 +1,0 @@
-# SSH private keys
-*.pem
-
-# OS files
-.DS_Store

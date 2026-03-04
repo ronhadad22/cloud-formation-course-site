@@ -1,9 +1,0 @@
-# AWS Client VPN Certificate ARNs
-# Generated: Wed Dec 10 16:04:47 IST 2025
-
-SERVER_CERTIFICATE_ARN=arn:aws:acm:us-east-1:050752632489:certificate/8a121b4b-619f-4d0e-91b8-912effcc082c
-CLIENT_CERTIFICATE_ARN=arn:aws:acm:us-east-1:050752632489:certificate/66f76917-fb2c-423f-9368-b5f464e7decd
-
-# Use these values in your CloudFormation parameters:
-# VPNServerCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/8a121b4b-619f-4d0e-91b8-912effcc082c
-# VPNClientCertificateArn: arn:aws:acm:us-east-1:050752632489:certificate/66f76917-fb2c-423f-9368-b5f464e7decd

@@ -1,3 +1,0 @@
-# Inline files in the 'private' directory contain security keys
-# which MUST ONLY be transmitted over a SECURE connection.
-# eg. 'https' or 'scp'.
