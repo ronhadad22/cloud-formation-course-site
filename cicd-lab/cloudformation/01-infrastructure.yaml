@@ -218,22 +218,23 @@ Resources:
           IMAGE=$1
 
           # Get region from instance metadata or IMDSv2
-          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || echo "")
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
           if [ -n "$TOKEN" ]; then
-            REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "")
+            REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)
           else
-            REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "")
+            REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)
           fi
           
-          # If metadata fails, try AWS CLI
+          # Trim whitespace and set default if empty
+          REGION=$(echo "$REGION" | tr -d '[:space:]')
           if [ -z "$REGION" ]; then
-            REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+            REGION="us-east-1"
           fi
           
-          export AWS_DEFAULT_REGION=$REGION
+          export AWS_DEFAULT_REGION="$REGION"
 
           # Get account ID
-          ACCOUNT=$(aws sts get-caller-identity --region $REGION --query Account --output text)
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
           echo "Deploying image: $IMAGE"
           echo "Region: $REGION"
