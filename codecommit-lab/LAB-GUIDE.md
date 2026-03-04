@@ -1,19 +1,21 @@
-# AWS CodeCommit + CodePipeline CI/CD Lab
+# AWS CodeCommit + CodePipeline + CodeDeploy CI/CD Lab
 
-Learn AWS-native CI/CD using CodeCommit, CodeBuild, and CodePipeline.
+Learn AWS-native CI/CD using CodeCommit, CodeBuild, CodePipeline, and CodeDeploy.
 
 ## Architecture
 
 ```
-Developer → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR → EC2
+Developer → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR
+                                            ↓
+                                       CodeDeploy → EC2
 ```
 
 **Flow:**
 1. Push code to CodeCommit repository
 2. EventBridge detects the push and triggers CodePipeline
-3. CodePipeline pulls source code
-4. CodeBuild builds Docker image and pushes to ECR
-5. Manually deploy to EC2 using the deploy script
+3. **Source stage**: CodePipeline pulls source code from CodeCommit
+4. **Build stage**: CodeBuild builds Docker image and pushes to ECR
+5. **Deploy stage**: CodeDeploy automatically deploys to EC2
 
 ---
 
@@ -27,7 +29,7 @@ Developer → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR 
 
 ## Step 1 — Deploy the Infrastructure
 
-This creates: VPC, EC2, ECR, CodeCommit repository, CodeBuild project, CodePipeline, S3 bucket for artifacts.
+This creates: VPC, EC2, ECR, CodeCommit repository, CodeBuild project, CodePipeline, CodeDeploy application, S3 bucket for artifacts.
 
 ```bash
 aws cloudformation deploy \
@@ -100,21 +102,33 @@ Copy the application code from your GitHub clone:
 
 ```bash
 # Assuming you cloned the course repo as a sibling directory
-cp -r ../cloud-formation-course-site/codecommit-lab/app/* .
+cp -r ../cloud-formation-course-site/codecommit-lab/app .
 cp ../cloud-formation-course-site/codecommit-lab/buildspec.yml .
+cp ../cloud-formation-course-site/codecommit-lab/appspec.yml .
+cp -r ../cloud-formation-course-site/codecommit-lab/scripts .
 ```
 
 **Or** download the files directly from GitHub:
 
 ```bash
-# Create app directory
-mkdir -p app
+# Create directories
+mkdir -p app scripts
 
-# Download files
-curl -o app/server.js https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/server.js
-curl -o app/package.json https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/package.json
-curl -o app/Dockerfile https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/app/Dockerfile
-curl -o buildspec.yml https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/main/codecommit-lab/buildspec.yml
+# Download app files
+curl -o app/server.js https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/server.js
+curl -o app/package.json https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/package.json
+curl -o app/Dockerfile https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/Dockerfile
+
+# Download deployment files
+curl -o buildspec.yml https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/buildspec.yml
+curl -o appspec.yml https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/appspec.yml
+curl -o scripts/stop_application.sh https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/scripts/stop_application.sh
+curl -o scripts/before_install.sh https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/scripts/before_install.sh
+curl -o scripts/start_application.sh https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/scripts/start_application.sh
+curl -o scripts/validate_service.sh https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/scripts/validate_service.sh
+
+# Make scripts executable
+chmod +x scripts/*.sh
 ```
 
 Commit and push:
@@ -134,36 +148,24 @@ git push origin main
 ## Step 4 — Watch the Pipeline
 
 1. Go to the **PipelineUrl** from Step 1
-2. Watch the pipeline execute:
+2. Watch the pipeline execute through all three stages:
    - **Source** stage: Pulls code from CodeCommit
    - **Build** stage: Builds Docker image and pushes to ECR
+   - **Deploy** stage: CodeDeploy automatically deploys to EC2
 
-The pipeline should complete in ~2-3 minutes.
+The pipeline should complete in ~3-5 minutes.
 
----
-
-## Step 5 — Deploy to EC2
-
-SSH into the EC2 instance:
-
-```bash
-ssh -i <YOUR-KEY-PAIR>.pem ec2-user@<APP-URL>
-```
-
-Run the deploy script:
-
-```bash
-./deploy.sh
-```
-
-This will:
-- Login to ECR
-- Pull the latest Docker image
-- Start the container on port 80
+**What's happening in the Deploy stage:**
+- CodeDeploy downloads the deployment bundle from S3
+- Runs `stop_application.sh` to stop the old container
+- Runs `before_install.sh` to prepare for deployment
+- Copies deployment files to EC2
+- Runs `start_application.sh` to pull and start the new Docker image
+- Runs `validate_service.sh` to verify the deployment
 
 ---
 
-## Step 6 — Verify the Deployment
+## Step 5 — Verify the Deployment
 
 Open the **App URL** in your browser:
 
@@ -181,7 +183,7 @@ curl http://<EC2-PUBLIC-IP>/api/health
 
 ---
 
-## Step 7 — Make a Change
+## Step 6 — Make a Change
 
 Edit the app locally:
 
@@ -197,7 +199,7 @@ git commit -m "Update greeting"
 git push origin main
 ```
 
-Watch the pipeline run again in the CodePipeline console, then SSH to EC2 and run `./deploy.sh` to deploy the new version.
+Watch the pipeline automatically run again in the CodePipeline console. CodeDeploy will automatically deploy the new version to EC2 - no manual intervention needed!
 
 ---
 
@@ -211,12 +213,21 @@ Reads `buildspec.yml` to:
 1. Login to ECR
 2. Build Docker image
 3. Push image to ECR with commit hash as tag
-4. Create `imagedefinitions.json` artifact
+4. Create deployment artifacts (`appspec.yml`, `scripts/`, `image_tag.txt`)
 
 ### CodePipeline
 Orchestrates the CI/CD workflow:
 - **Source stage**: Detects changes in CodeCommit
 - **Build stage**: Triggers CodeBuild
+- **Deploy stage**: Triggers CodeDeploy
+
+### CodeDeploy
+Reads `appspec.yml` to:
+1. Stop the old application
+2. Prepare the deployment directory
+3. Deploy new files to EC2
+4. Start the new application
+5. Validate the deployment
 
 ### EventBridge
 Triggers the pipeline automatically when code is pushed to the `main` branch.
@@ -231,6 +242,11 @@ Triggers the pipeline automatically when code is pushed to the `main` branch.
 | `app/Dockerfile` | Packages the app into a Docker image |
 | `app/package.json` | Node.js dependencies |
 | `buildspec.yml` | CodeBuild instructions (build & push Docker image) |
+| `appspec.yml` | CodeDeploy deployment instructions |
+| `scripts/stop_application.sh` | Stops the running container |
+| `scripts/before_install.sh` | Prepares deployment directory |
+| `scripts/start_application.sh` | Pulls and starts new Docker image |
+| `scripts/validate_service.sh` | Validates deployment health |
 | `cloudformation/01-infrastructure.yaml` | Creates all AWS resources |
 
 ---

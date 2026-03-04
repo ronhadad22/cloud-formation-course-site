@@ -1,9 +1,11 @@
-# CodeCommit + CodePipeline CI/CD Lab
+# CodeCommit + CodePipeline + CodeDeploy CI/CD Lab
 
-AWS-native CI/CD pipeline using CodeCommit, CodeBuild, and CodePipeline.
+Complete AWS-native CI/CD pipeline using CodeCommit, CodeBuild, CodePipeline, and CodeDeploy.
 
 ```
-git push → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR → EC2
+git push → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR
+                                           ↓
+                                      CodeDeploy → EC2
 ```
 
 ## What You'll Learn
@@ -11,6 +13,7 @@ git push → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR �
 - AWS CodeCommit for Git repositories
 - CodeBuild for building Docker images
 - CodePipeline for orchestrating CI/CD
+- **CodeDeploy for automated deployments**
 - EventBridge for triggering pipelines
 - IAM roles instead of managing secrets
 
@@ -21,7 +24,9 @@ git push → CodeCommit → EventBridge → CodePipeline → CodeBuild → ECR �
 | `app/server.js` | Simple Node.js web app |
 | `app/Dockerfile` | Packages the app into a Docker image |
 | `buildspec.yml` | CodeBuild instructions |
-| `cloudformation/01-infrastructure.yaml` | Creates VPC, EC2, ECR, CodeCommit, CodeBuild, CodePipeline |
+| `appspec.yml` | CodeDeploy deployment instructions |
+| `scripts/*.sh` | Deployment lifecycle hooks |
+| `cloudformation/01-infrastructure.yaml` | Creates VPC, EC2, ECR, CodeCommit, CodeBuild, CodePipeline, CodeDeploy |
 
 ## Student Instructions
 

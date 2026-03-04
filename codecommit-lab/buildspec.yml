@@ -19,9 +19,11 @@ phases:
       - echo Pushing the Docker images...
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - echo Writing image definitions file...
-      - printf '[{"name":"cicd-app","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - echo Writing image tag for deployment...
+      - echo $IMAGE_TAG > image_tag.txt
 
 artifacts:
   files:
-    - imagedefinitions.json
+    - appspec.yml
+    - image_tag.txt
+    - scripts/**/*
