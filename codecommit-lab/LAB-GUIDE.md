@@ -122,6 +122,10 @@ Commit and push:
 ```bash
 git add .
 git commit -m "Initial commit"
+
+# Rename branch from master to main (CodeCommit default is master)
+git branch -M main
+
 git push origin main
 ```
 
