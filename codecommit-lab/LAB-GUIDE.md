@@ -99,9 +99,9 @@ cd codecommit-lab-app
 Copy the application code from your GitHub clone:
 
 ```bash
-# Assuming you cloned the course repo to ~/cloud-formation-course-site
-cp -r ~/cloud-formation-course-site/codecommit-lab/app/* .
-cp ~/cloud-formation-course-site/codecommit-lab/buildspec.yml .
+# Assuming you cloned the course repo as a sibling directory
+cp -r ../cloud-formation-course-site/codecommit-lab/app/* .
+cp ../cloud-formation-course-site/codecommit-lab/buildspec.yml .
 ```
 
 **Or** download the files directly from GitHub:
