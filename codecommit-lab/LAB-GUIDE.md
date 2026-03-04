@@ -102,7 +102,7 @@ Copy the application code from your GitHub clone:
 
 ```bash
 # Assuming you cloned the course repo as a sibling directory
-cp -r ../cloud-formation-course-site/codecommit-lab/app .
+cp -r ../cloud-formation-course-site/codecommit-lab/app/* .
 cp ../cloud-formation-course-site/codecommit-lab/buildspec.yml .
 cp ../cloud-formation-course-site/codecommit-lab/appspec.yml .
 cp -r ../cloud-formation-course-site/codecommit-lab/scripts .
@@ -111,13 +111,13 @@ cp -r ../cloud-formation-course-site/codecommit-lab/scripts .
 **Or** download the files directly from GitHub:
 
 ```bash
-# Create directories
-mkdir -p app scripts
+# Create scripts directory
+mkdir -p scripts
 
-# Download app files
-curl -o app/server.js https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/server.js
-curl -o app/package.json https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/package.json
-curl -o app/Dockerfile https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/Dockerfile
+# Download app files (to root)
+curl -o server.js https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/server.js
+curl -o package.json https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/package.json
+curl -o Dockerfile https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/app/Dockerfile
 
 # Download deployment files
 curl -o buildspec.yml https://raw.githubusercontent.com/ronhadad22/cloud-formation-course-site/cicd-lab/codecommit-lab/buildspec.yml
