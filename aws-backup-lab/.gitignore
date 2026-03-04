@@ -1,0 +1,11 @@
+# Generated hospital data
+dataset-generator/hospital-data/
+
+# SSH private keys
+*.pem
+
+# Disaster simulation logs
+disaster-simulations/disaster-logs/
+
+# OS files
+.DS_Store

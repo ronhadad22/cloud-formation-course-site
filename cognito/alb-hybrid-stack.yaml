@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ALB with Cognito - Supports both React App (JWT) and Hosted UI'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 'VPC ID where ALB will be deployed'
+  
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: 'At least 2 public subnets in different AZs'
+  
+  UserPoolId:
+    Type: String
+    Default: 'us-east-1_ZWzVtGG7c'
+    Description: 'Cognito User Pool ID'
+  
+  UserPoolClientId:
+    Type: String
+    Default: '13thtsksprs588ud2sqelcfkp6'
+    Description: 'Cognito User Pool Client ID'
+
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-ALB-SG'
+      GroupDescription: 'Security group for ALB'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP from internet'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS from internet'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ALB-SG'
+
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-Backend-SG'
+      GroupDescription: 'Security group for backend instances'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3001
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: 'Allow traffic from ALB only'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Backend-SG'
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${AWS::StackName}-ALB'
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ALB'
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${AWS::StackName}-TG'
+      Port: 3001
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+      TargetType: instance
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-TG'
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # API routes - Accept JWT tokens from React app
+  APIProtectedRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HTTPListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - '/api/protected'
+            - '/api/user/*'
+            - '/api/data'
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # Public endpoints - No auth required
+  PublicEndpointRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HTTPListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - '/api/public'
+            - '/api/health'
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LoadBalancerDNS:
+    Description: 'ALB DNS Name'
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-DNS'
+
+  LoadBalancerURL:
+    Description: 'ALB URL for React app to call'
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-URL'
+
+  BackendSecurityGroupId:
+    Description: 'Backend Security Group ID (attach to your EC2 instances)'
+    Value: !Ref BackendSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-Backend-SG-ID'

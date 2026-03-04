@@ -1,0 +1,38 @@
+---
+- name: Deploy Web Server using Role
+  hosts: webservers
+  become: yes
+  
+  roles:
+    - role: webserver
+      vars:
+        webserver_port: 80
+        webserver_server_name: "{{ inventory_hostname }}"
+        webserver_document_root: /var/www/mysite
+
+---
+# Alternative: Using role with different syntax
+- name: Deploy Web Server with Custom Variables
+  hosts: webservers
+  become: yes
+  
+  vars:
+    webserver_enable_ssl: true
+    webserver_ssl_cert: /etc/ssl/certs/server.crt
+    webserver_ssl_key: /etc/ssl/private/server.key
+  
+  roles:
+    - webserver
+
+---
+# Using role in tasks section
+- name: Deploy Web Server in Tasks
+  hosts: webservers
+  become: yes
+  
+  tasks:
+    - name: Include webserver role
+      include_role:
+        name: webserver
+      vars:
+        webserver_port: 8080

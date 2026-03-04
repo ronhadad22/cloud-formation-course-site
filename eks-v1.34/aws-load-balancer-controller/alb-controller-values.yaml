@@ -1,0 +1,111 @@
+# AWS Load Balancer Controller Helm Values
+
+clusterName: student-eks-cluster
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::950555670656:role/AWSLoadBalancerControllerRole
+
+# Replica count for high availability
+replicaCount: 2
+
+# Resource limits
+resources:
+  limits:
+    cpu: 200m
+    memory: 500Mi
+  requests:
+    cpu: 100m
+    memory: 200Mi
+
+# Image configuration
+image:
+  repository: public.ecr.aws/eks/aws-load-balancer-controller
+  tag: v2.16.0
+  pullPolicy: IfNotPresent
+
+# AWS Region
+region: us-east-1
+
+# VPC ID - Update this with your VPC ID
+vpcId: vpc-0866e93197dbb9d11
+
+# Enable Shield, WAF, WAFv2, and other features
+enableShield: false
+enableWaf: false
+enableWafv2: false
+
+# Pod disruption budget
+podDisruptionBudget:
+  maxUnavailable: 1
+
+# Priority class
+priorityClassName: system-cluster-critical
+
+# Node selector - commented out to allow scheduling on any node
+# nodeSelector:
+#   node-role: system
+
+# Tolerations for system nodes
+tolerations:
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# Anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - aws-load-balancer-controller
+          topologyKey: kubernetes.io/hostname
+
+# Logging configuration
+logLevel: info
+
+# Webhook configuration
+webhookTLS:
+  caCert: ""
+  cert: ""
+  key: ""
+
+# Enable cert-manager for webhook certificates
+enableCertManager: false
+
+# Service monitor for Prometheus (if using)
+serviceMonitor:
+  enabled: false
+
+# Default tags for AWS resources
+defaultTags:
+  managed-by: aws-load-balancer-controller
+  cluster: student-eks-cluster
+
+# Ingress class configuration
+ingressClass: alb
+ingressClassParams:
+  create: true
+  name: alb
+  spec: {}
+
+# Enable backend security group
+enableBackendSecurityGroup: true
+
+# Disable restricted security group rules
+disableRestrictedSecurityGroupRules: false
+
+# Controller configuration
+controllerConfig:
+  # Feature gates - Enable Gateway API support
+  featureGates:
+    NLBGatewayAPI: true
+    ALBGatewayAPI: true

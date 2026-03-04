@@ -1,0 +1,21 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "cec250232c67e5dd9600ab85e654edbcb3303f2c5aff67bbe0bedf92e2db0ab0": {
+      "displayName": "ActionGroupsSimpleStack Template",
+      "source": {
+        "path": "ActionGroupsSimpleStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "950555670656-us-east-1-7224445e": {
+          "bucketName": "cdk-hnb659fds-assets-950555670656-us-east-1",
+          "objectKey": "cec250232c67e5dd9600ab85e654edbcb3303f2c5aff67bbe0bedf92e2db0ab0.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::950555670656:role/cdk-hnb659fds-file-publishing-role-950555670656-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

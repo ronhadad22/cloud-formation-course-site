@@ -1,0 +1,58 @@
+# Elasticsearch Helm Chart Values
+# Using official Elastic Helm chart
+
+# Elasticsearch configuration
+replicas: 3
+minimumMasterNodes: 2
+
+# Resource limits
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+# JVM heap size (should be 50% of memory limit)
+esJavaOpts: "-Xmx512m -Xms512m"
+
+# Persistent storage
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: "gp3"
+  resources:
+    requests:
+      storage: 10Gi
+
+# Security - disabled for development
+# Enable these for production
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: false
+    xpack.security.enrollment.enabled: false
+    xpack.security.http.ssl.enabled: false
+    xpack.security.transport.ssl.enabled: false
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9200
+
+# Anti-affinity to spread pods across nodes
+antiAffinity: "soft"
+
+# Enable sysctls for Elasticsearch requirements
+sysctlInitContainer:
+  enabled: true
+
+# Protocol
+protocol: http
+
+# Disable security features
+createCert: false
+
+# Image
+image: "docker.elastic.co/elasticsearch/elasticsearch"
+imageTag: "8.11.3"
+imagePullPolicy: "IfNotPresent"

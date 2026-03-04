@@ -1,0 +1,4 @@
+keycloak_url            = "https://keycloak-tf.iitc-course.com"
+keycloak_admin_user     = "admin"
+keycloak_admin_password = "KeycloakLab2024!"
+app_url                 = "https://hr-portal-tf.iitc-course.com"

@@ -1,0 +1,54 @@
+---
+# ServiceMonitor for a non-existent demo application
+# This will show up=0 in Prometheus because the target doesn't exist
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-nonexistent-app
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: demo-nonexistent-app
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# Service with static endpoint pointing to unreachable IP
+# This will show up=0 in Prometheus because the endpoint exists but is unreachable
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nonexistent-app
+  namespace: monitoring
+  labels:
+    app: demo-nonexistent-app
+spec:
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+  clusterIP: None
+  type: ClusterIP
+
+---
+# Endpoints with unreachable IP address
+# Prometheus will try to scrape this and fail, showing up=0
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: demo-nonexistent-app
+  namespace: monitoring
+  labels:
+    app: demo-nonexistent-app
+subsets:
+- addresses:
+  - ip: 192.0.2.1
+  ports:
+  - name: metrics
+    port: 8080
+    protocol: TCP

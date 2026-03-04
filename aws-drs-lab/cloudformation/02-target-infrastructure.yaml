@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS DRS Lab - Target Region Infrastructure
+  Creates the VPC and networking for the DRS staging area in the recovery region (eu-west-1)
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: drs-lab
+    Description: Environment name prefix for resources
+
+Resources:
+  # ============================================
+  # VPC & Networking
+  # ============================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-target-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-target-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  StagingSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-staging-subnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-target-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  StagingSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref StagingSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================
+  # Security Group for Recovery Instances (PayFlow app)
+  # ============================================
+  RecoveryInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Recovery instances - allows SSH and HTTP for the PayFlow app
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP - PayFlow web app
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-recovery-instance-sg
+
+  # ============================================
+  # Security Group for DRS Replication Servers
+  # ============================================
+  DRSStagingSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DRS Staging Area - allows replication traffic from source servers
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Inbound replication data from source servers (TCP 443)
+        - IpProtocol: tcp
+          FromPort: 1500
+          ToPort: 1500
+          CidrIp: 0.0.0.0/0
+          Description: Inbound replication data from source servers (TCP 1500)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-drs-staging-sg
+
+Outputs:
+  VpcId:
+    Description: Target VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${EnvironmentName}-target-vpc-id
+
+  StagingSubnetId:
+    Description: Subnet ID to use for the DRS staging area during DRS initialization
+    Value: !Ref StagingSubnet
+    Export:
+      Name: !Sub ${EnvironmentName}-staging-subnet-id
+
+  DRSStagingSecurityGroupId:
+    Description: Security Group ID to use for DRS replication servers
+    Value: !Ref DRSStagingSecurityGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-drs-staging-sg-id
+
+  RecoveryInstanceSecurityGroupId:
+    Description: Security Group ID for recovery instances (use in Step 5 EC2 launch template)
+    Value: !Ref RecoveryInstanceSecurityGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-recovery-instance-sg-id
+
+  TargetRegion:
+    Description: Target region for DRS recovery
+    Value: !Ref AWS::Region

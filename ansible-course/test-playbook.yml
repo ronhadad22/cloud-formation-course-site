@@ -1,0 +1,28 @@
+---
+- name: Test Ansible Playbook
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  tasks:
+    - name: Display system information
+      debug:
+        msg: "Running on {{ ansible_distribution }} {{ ansible_distribution_version }}"
+    
+    - name: Create a test directory
+      file:
+        path: /tmp/ansible-test
+        state: directory
+        mode: '0755'
+    
+    - name: Create a test file
+      copy:
+        content: |
+          Hello from Ansible!
+          This is a test file created on {{ ansible_date_time.date }}
+        dest: /tmp/ansible-test/hello.txt
+        mode: '0644'
+    
+    - name: Display success message
+      debug:
+        msg: "Ansible is working! Check /tmp/ansible-test/hello.txt"

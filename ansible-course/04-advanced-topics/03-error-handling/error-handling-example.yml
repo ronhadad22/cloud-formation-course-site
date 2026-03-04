@@ -1,0 +1,138 @@
+---
+- name: Error Handling Examples
+  hosts: all
+  become: yes
+  
+  tasks:
+    # Block/Rescue/Always - Try/Catch equivalent
+    - name: Error handling with block
+      block:
+        - name: Attempt to install package
+          apt:
+            name: nonexistent-package
+            state: present
+        
+        - name: This won't run if above fails
+          debug:
+            msg: "Package installed successfully"
+      
+      rescue:
+        - name: Handle the error
+          debug:
+            msg: "Package installation failed, using alternative"
+        
+        - name: Install alternative package
+          apt:
+            name: curl
+            state: present
+      
+      always:
+        - name: This always runs
+          debug:
+            msg: "Cleanup or logging happens here"
+    
+    # Ignore errors
+    - name: Task that might fail
+      command: /bin/false
+      ignore_errors: yes
+    
+    - name: This runs even if previous task failed
+      debug:
+        msg: "Continuing despite previous failure"
+    
+    # Custom failure conditions
+    - name: Check disk space
+      shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      failed_when: disk_usage.stdout | int > 90
+      changed_when: false
+    
+    # Multiple failure conditions
+    - name: Run command with custom failure
+      command: some_command
+      register: result
+      failed_when:
+        - result.rc != 0
+        - "'error' in result.stderr"
+      ignore_errors: yes
+    
+    # Any errors fatal - stop all hosts if one fails
+    - name: Critical task
+      command: critical_operation
+      any_errors_fatal: true
+      ignore_errors: yes
+    
+    # Max fail percentage
+    - name: Task with max fail percentage
+      command: risky_operation
+      ignore_errors: yes
+
+---
+- name: Advanced Error Handling
+  hosts: webservers
+  become: yes
+  max_fail_percentage: 25  # Allow up to 25% of hosts to fail
+  
+  tasks:
+    - name: Nested blocks
+      block:
+        - name: Outer block task
+          block:
+            - name: Inner task that might fail
+              command: /bin/false
+          
+          rescue:
+            - name: Inner rescue
+              debug:
+                msg: "Inner block failed"
+      
+      rescue:
+        - name: Outer rescue
+          debug:
+            msg: "Outer block failed"
+    
+    # Retry logic
+    - name: Task with retries
+      uri:
+        url: http://example.com/api
+        method: GET
+      register: api_result
+      until: api_result.status == 200
+      retries: 5
+      delay: 10
+      ignore_errors: yes
+    
+    # Conditional rescue
+    - name: Conditional error handling
+      block:
+        - name: Attempt primary method
+          command: primary_method
+      
+      rescue:
+        - name: Try secondary method if primary fails
+          command: secondary_method
+          when: ansible_os_family == "Debian"
+        
+        - name: Try tertiary method
+          command: tertiary_method
+          when: ansible_os_family == "RedHat"
+    
+    # Assert for validation
+    - name: Validate prerequisites
+      assert:
+        that:
+          - ansible_memtotal_mb >= 2048
+          - ansible_processor_vcpus >= 2
+        fail_msg: "System does not meet minimum requirements"
+        success_msg: "System requirements validated"
+    
+    # Fail module for custom failures
+    - name: Check configuration
+      stat:
+        path: /etc/myapp/config.yml
+      register: config_file
+    
+    - name: Fail if config missing
+      fail:
+        msg: "Configuration file not found at /etc/myapp/config.yml"
+      when: not config_file.stat.exists

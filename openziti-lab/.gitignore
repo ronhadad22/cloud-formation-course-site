@@ -1,0 +1,8 @@
+# SSH private keys
+*.pem
+
+# JWT enrollment tokens
+*.jwt
+
+# OS files
+.DS_Store

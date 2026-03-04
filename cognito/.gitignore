@@ -1,0 +1,13 @@
+node_modules/
+.env
+*.log
+.DS_Store
+dist/
+build/
+.vscode/
+.idea/
+mlruns/
+mlflow.db
+venv/
+*.pyc
+__pycache__/

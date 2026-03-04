@@ -1,0 +1,189 @@
+---
+- name: File Operations Examples
+  hosts: all
+  become: yes
+  
+  vars:
+    app_dir: /opt/myapp
+    config_dir: /etc/myapp
+  
+  tasks:
+    # File Module - Create/Modify files and directories
+    - name: Create a directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    
+    - name: Create nested directories
+      file:
+        path: "{{ app_dir }}/logs/archive"
+        state: directory
+        mode: '0755'
+        recurse: yes
+    
+    - name: Create an empty file
+      file:
+        path: "{{ app_dir }}/app.log"
+        state: touch
+        owner: www-data
+        group: www-data
+        mode: '0644'
+    
+    - name: Create symbolic link
+      file:
+        src: "{{ app_dir }}/current"
+        dest: "{{ app_dir }}/latest"
+        state: link
+    
+    - name: Remove a file
+      file:
+        path: /tmp/oldfile.txt
+        state: absent
+    
+    - name: Remove a directory recursively
+      file:
+        path: /tmp/old_directory
+        state: absent
+    
+    - name: Change file permissions
+      file:
+        path: "{{ app_dir }}/app.log"
+        mode: '0640'
+        owner: www-data
+        group: adm
+    
+    # Copy Module - Copy files from control node to managed nodes
+    - name: Copy file to remote host
+      copy:
+        src: files/config.conf
+        dest: "{{ config_dir }}/config.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+    
+    - name: Copy file with inline content
+      copy:
+        content: |
+          # Application Configuration
+          APP_NAME=myapp
+          APP_ENV=production
+          LOG_LEVEL=info
+        dest: "{{ app_dir }}/.env"
+        owner: www-data
+        group: www-data
+        mode: '0600'
+    
+    - name: Copy directory recursively
+      copy:
+        src: files/webapp/
+        dest: "{{ app_dir }}/public/"
+        owner: www-data
+        group: www-data
+        mode: '0755'
+    
+    - name: Copy with validation
+      copy:
+        src: files/nginx.conf
+        dest: /etc/nginx/nginx.conf
+        validate: 'nginx -t -c %s'
+        backup: yes
+      notify: Reload nginx
+    
+    # Fetch Module - Copy files from managed nodes to control node
+    - name: Fetch log file from remote host
+      fetch:
+        src: /var/log/syslog
+        dest: /tmp/logs/{{ inventory_hostname }}/
+        flat: no
+    
+    # Template Module (basic - covered more in later lessons)
+    - name: Deploy configuration from template
+      template:
+        src: templates/app.conf.j2
+        dest: "{{ config_dir }}/app.conf"
+        owner: root
+        group: root
+        mode: '0644'
+    
+    # Lineinfile Module - Ensure a line exists in a file
+    - name: Add line to file
+      lineinfile:
+        path: /etc/hosts
+        line: "192.168.1.100 myapp.local"
+        state: present
+    
+    - name: Replace or add line matching regex
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+        backup: yes
+      notify: Restart sshd
+    
+    - name: Remove line from file
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^192\.168\.1\.100'
+        state: absent
+    
+    # Blockinfile Module - Insert/update/remove block of lines
+    - name: Add block of configuration
+      blockinfile:
+        path: /etc/security/limits.conf
+        block: |
+          * soft nofile 65536
+          * hard nofile 65536
+          * soft nproc 32768
+          * hard nproc 32768
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - App Limits"
+        backup: yes
+    
+    # Replace Module - Replace text in files
+    - name: Replace text in file
+      replace:
+        path: /etc/nginx/nginx.conf
+        regexp: 'worker_processes\s+\d+;'
+        replace: 'worker_processes auto;'
+        backup: yes
+    
+    # Stat Module - Get file/directory information
+    - name: Check if file exists
+      stat:
+        path: "{{ app_dir }}/app.log"
+      register: log_file
+    
+    - name: Display file info
+      debug:
+        msg: "File exists: {{ log_file.stat.exists }}, Size: {{ log_file.stat.size | default(0) }} bytes"
+    
+    # Find Module - Search for files
+    - name: Find old log files
+      find:
+        paths: "{{ app_dir }}/logs"
+        patterns: "*.log"
+        age: "7d"
+        age_stamp: mtime
+      register: old_logs
+    
+    - name: Remove old log files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_logs.files }}"
+      when: old_logs.matched > 0
+  
+  handlers:
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
+    
+    - name: Restart sshd
+      service:
+        name: sshd
+        state: restarted

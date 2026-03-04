@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Simple SNS-to-SQS Fan-Out Pattern - No IAM Users Required'
+
+Parameters:
+  TopicName:
+    Type: String
+    Default: my-sns-topic
+    Description: Name for the SNS topic
+
+Resources:
+  # SNS Topic
+  MySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref TopicName
+      DisplayName: Demo SNS Topic for Fan-Out Pattern
+
+  # SQS Queue 1
+  Queue1:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${TopicName}-queue-1
+      MessageRetentionPeriod: 86400
+      VisibilityTimeout: 30
+
+  # SQS Queue 2
+  Queue2:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${TopicName}-queue-2
+      MessageRetentionPeriod: 86400
+      VisibilityTimeout: 30
+
+  # Queue Policy - Allow SNS to send messages to Queue 1
+  Queue1Policy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref Queue1
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt Queue1.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref MySNSTopic
+
+  # Queue Policy - Allow SNS to send messages to Queue 2
+  Queue2Policy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref Queue2
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt Queue2.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref MySNSTopic
+
+  # SNS Subscription - Queue 1
+  Queue1Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref MySNSTopic
+      Endpoint: !GetAtt Queue1.Arn
+      RawMessageDelivery: true
+
+  # SNS Subscription - Queue 2
+  Queue2Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref MySNSTopic
+      Endpoint: !GetAtt Queue2.Arn
+      RawMessageDelivery: true
+
+Outputs:
+  SNSTopicArn:
+    Description: ARN of the SNS Topic
+    Value: !Ref MySNSTopic
+    Export:
+      Name: !Sub ${AWS::StackName}-TopicArn
+
+  SNSTopicName:
+    Description: Name of the SNS Topic
+    Value: !GetAtt MySNSTopic.TopicName
+
+  Queue1Url:
+    Description: URL of SQS Queue 1
+    Value: !Ref Queue1
+
+  Queue1Arn:
+    Description: ARN of SQS Queue 1
+    Value: !GetAtt Queue1.Arn
+
+  Queue2Url:
+    Description: URL of SQS Queue 2
+    Value: !Ref Queue2
+
+  Queue2Arn:
+    Description: ARN of SQS Queue 2
+    Value: !GetAtt Queue2.Arn

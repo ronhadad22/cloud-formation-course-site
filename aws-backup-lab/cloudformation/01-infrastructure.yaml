@@ -1,0 +1,306 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Backup DR Lab - Phase 1: Healthcare Application Infrastructure.
+  Creates VPC, EC2 app server, EFS, and S3 bucket.
+  This is for training and simulation only.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: backup-lab
+    Description: Environment name prefix
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+
+  # ============================================
+  # VPC + Networking
+  # ============================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc
+        - Key: Project
+          Value: healthcare-backup-lab
+        - Key: Backup
+          Value: "true"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-igw
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================
+  # Security Groups
+  # ============================================
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Healthcare App Server - SSH, HTTP, HTTPS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-sg
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS - Allow NFS from App SG
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: NFS from App
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-efs-sg
+
+  # ============================================
+  # EC2 Application Server
+  # ============================================
+  AppServer:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - EFSMountTarget1
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      IamInstanceProfile: !Ref AppInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          yum update -y
+          yum install -y httpd amazon-efs-utils python3-pip jq
+
+          # Mount EFS
+          mkdir -p /mnt/efs
+          mount -t efs -o tls ${EFSFileSystem}:/ /mnt/efs
+          echo "${EFSFileSystem}:/ /mnt/efs efs _netdev,tls 0 0" >> /etc/fstab
+
+          # Create hospital data directories on EFS
+          mkdir -p /mnt/efs/hospital-data/{patients,medical-images,billing,logs,configs}
+          chmod -R 755 /mnt/efs/hospital-data
+
+          # Start web server
+          systemctl start httpd
+          systemctl enable httpd
+
+          echo '<html><head><title>Healthcare App - Backup Lab</title></head><body style="background:#1b5e20;color:white;text-align:center;font-family:Arial;padding:50px"><h1>Healthcare Application Server</h1><p>AWS Backup Disaster Recovery Lab</p><hr><h2>System Status</h2><table style="margin:auto;text-align:left;color:white"><tr><td>EFS Mount:</td><td>/mnt/efs/hospital-data</td></tr><tr><td>S3 Bucket:</td><td>Logs and Billing</td></tr><tr><td>Backup:</td><td>AWS Backup Enabled</td></tr></table><hr><p style="font-size:12px">This is a training environment - DO NOT store real patient data</p></body></html>' > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-server
+        - Key: Backup
+          Value: "true"
+        - Key: Project
+          Value: healthcare-backup-lab
+        - Key: Role
+          Value: application-server
+
+  AppInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-role
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref AppInstanceRole
+
+  # ============================================
+  # EFS File System (Patient Files, Medical Images)
+  # ============================================
+  EFSFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      BackupPolicy:
+        Status: ENABLED
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-efs
+        - Key: Backup
+          Value: "true"
+        - Key: Project
+          Value: healthcare-backup-lab
+
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  # ============================================
+  # S3 Bucket (Logs & Billing)
+  # ============================================
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub
+        - ${EnvironmentName}-healthcare-${suffix}
+        - suffix: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-healthcare-data
+        - Key: Backup
+          Value: "true"
+        - Key: Project
+          Value: healthcare-backup-lab
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${EnvironmentName}-vpc-id
+
+  AppServerPublicIP:
+    Description: App server public IP (SSH)
+    Value: !GetAtt AppServer.PublicIp
+
+  AppServerInstanceId:
+    Description: App server instance ID
+    Value: !Ref AppServer
+
+  EFSFileSystemId:
+    Description: EFS file system ID
+    Value: !Ref EFSFileSystem
+
+  S3BucketName:
+    Description: S3 data bucket name
+    Value: !Ref DataBucket
+
+  S3BucketArn:
+    Description: S3 data bucket ARN
+    Value: !GetAtt DataBucket.Arn
+
+  AppSecurityGroupId:
+    Description: App security group ID
+    Value: !Ref AppSecurityGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-app-sg-id

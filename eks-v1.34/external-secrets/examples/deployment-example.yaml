@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jewlery-app-backend
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: jewlery-app-backend
+  template:
+    metadata:
+      labels:
+        app: jewlery-app-backend
+    spec:
+      containers:
+      - name: backend
+        image: 950555670656.dkr.ecr.us-east-1.amazonaws.com/jewleryapp/be:latest
+        ports:
+        - containerPort: 3000
+        env:
+        # Database connection from external secret
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: DB_PORT
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: DB_PASSWORD
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: DATABASE_URL
+        
+        # Redis connection from external secret
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-secrets
+              key: REDIS_URL
+        
+        # Application secrets from external secret
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: jewlery-app-secrets
+              key: JWT_SECRET
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: jewlery-app-secrets
+              key: API_KEY
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: jewlery-app-secrets
+              key: STRIPE_SECRET_KEY
+        
+        # Configuration from external secret (mounted as file)
+        volumeMounts:
+        - name: app-config
+          mountPath: /app/config
+          readOnly: true
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      volumes:
+      - name: app-config
+        secret:
+          secretName: jewlery-app-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jewlery-app-backend
+  namespace: default
+spec:
+  selector:
+    app: jewlery-app-backend
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: ClusterIP

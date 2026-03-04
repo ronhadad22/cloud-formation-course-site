@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Backup DR Lab - Phase 3: Backup Architecture.
+  Creates Backup Vault, Logically Air Gapped Vault, Backup Plans,
+  cross-region copy, KMS encryption, and tag-based selection.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: backup-lab
+    Description: Environment name prefix
+
+  SecondaryRegion:
+    Type: String
+    Default: us-west-2
+    Description: Secondary region for cross-region backup copy
+
+  RetentionDays:
+    Type: Number
+    Default: 7
+    Description: Days to retain daily backups
+
+  WeeklyRetentionDays:
+    Type: Number
+    Default: 30
+    Description: Days to retain weekly backups
+
+Resources:
+
+  # ============================================
+  # KMS Key for Backup Encryption
+  # ============================================
+  BackupKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for AWS Backup vault encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRootAccountAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowBackupService
+            Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-backup-key
+        - Key: Project
+          Value: healthcare-backup-lab
+
+  BackupKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${EnvironmentName}-backup-key
+      TargetKeyId: !Ref BackupKMSKey
+
+  # ============================================
+  # Primary Backup Vault (KMS Encrypted)
+  # ============================================
+  PrimaryBackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub ${EnvironmentName}-primary-vault
+      EncryptionKeyArn: !GetAtt BackupKMSKey.Arn
+      AccessPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyDeleteRecoveryPoints
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - backup:DeleteRecoveryPoint
+              - backup:UpdateRecoveryPointLifecycle
+            Resource: '*'
+            Condition:
+              StringNotEquals:
+                aws:PrincipalArn: !Sub arn:aws:iam::${AWS::AccountId}:root
+      BackupVaultTags:
+        Name: !Sub ${EnvironmentName}-primary-vault
+        Project: healthcare-backup-lab
+        VaultType: primary
+
+  # ============================================
+  # Logically Air Gapped Vault
+  # Recovery points cannot be deleted for MinRetentionDays
+  # ============================================
+  AirGappedVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub ${EnvironmentName}-airgapped-vault
+      EncryptionKeyArn: !GetAtt BackupKMSKey.Arn
+      LockConfiguration:
+        MinRetentionDays: 7
+        MaxRetentionDays: 365
+      AccessPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyAllDeletes
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - backup:DeleteRecoveryPoint
+              - backup:UpdateRecoveryPointLifecycle
+              - backup:PutBackupVaultLockConfiguration
+            Resource: '*'
+      BackupVaultTags:
+        Name: !Sub ${EnvironmentName}-airgapped-vault
+        Project: healthcare-backup-lab
+        VaultType: logically-air-gapped
+
+  # ============================================
+  # IAM Role for AWS Backup
+  # ============================================
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-backup-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+        - arn:aws:iam::aws:policy/AWSBackupServiceRolePolicyForS3Backup
+        - arn:aws:iam::aws:policy/AWSBackupServiceRolePolicyForS3Restore
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-backup-role
+
+  # ============================================
+  # Backup Plan - Daily (EC2, RDS, EFS, S3)
+  # ============================================
+  DailyBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvironmentName}-daily-plan
+        BackupPlanRule:
+          # Daily backup to primary vault
+          - RuleName: DailyBackupToPrimary
+            TargetBackupVault: !Ref PrimaryBackupVault
+            ScheduleExpression: cron(0 2 * * ? *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: !Ref RetentionDays
+            CopyActions:
+              # Cross-region copy
+              - DestinationBackupVaultArn: !Sub arn:aws:backup:${SecondaryRegion}:${AWS::AccountId}:backup-vault:Default
+                Lifecycle:
+                  DeleteAfterDays: !Ref RetentionDays
+
+          # Weekly backup to air-gapped vault
+          - RuleName: WeeklyToAirGapped
+            TargetBackupVault: !Ref AirGappedVault
+            ScheduleExpression: cron(0 3 ? * SUN *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 360
+            Lifecycle:
+              DeleteAfterDays: !Ref WeeklyRetentionDays
+
+      BackupPlanTags:
+        Name: !Sub ${EnvironmentName}-daily-plan
+        Project: healthcare-backup-lab
+
+  # ============================================
+  # Backup Selection - Tag Based (Backup=true)
+  # ============================================
+  TagBasedSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref DailyBackupPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvironmentName}-tag-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: Backup
+            ConditionValue: "true"
+
+  # ============================================
+  # On-Demand Backup Plan (for student exercises)
+  # ============================================
+  OnDemandPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvironmentName}-ondemand-plan
+        BackupPlanRule:
+          - RuleName: OnDemandToPrimary
+            TargetBackupVault: !Ref PrimaryBackupVault
+            Lifecycle:
+              DeleteAfterDays: 1
+      BackupPlanTags:
+        Name: !Sub ${EnvironmentName}-ondemand-plan
+
+  OnDemandSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref OnDemandPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvironmentName}-ondemand-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: Backup
+            ConditionValue: "true"
+
+Outputs:
+  PrimaryVaultName:
+    Description: Primary backup vault name
+    Value: !Ref PrimaryBackupVault
+
+  PrimaryVaultArn:
+    Description: Primary backup vault ARN
+    Value: !GetAtt PrimaryBackupVault.BackupVaultArn
+
+  AirGappedVaultName:
+    Description: Logically air-gapped vault name
+    Value: !Ref AirGappedVault
+
+  AirGappedVaultArn:
+    Description: Air-gapped vault ARN
+    Value: !GetAtt AirGappedVault.BackupVaultArn
+
+  BackupRoleArn:
+    Description: Backup IAM role ARN
+    Value: !GetAtt BackupRole.Arn
+
+  DailyBackupPlanId:
+    Description: Daily backup plan ID
+    Value: !Ref DailyBackupPlan
+
+  OnDemandPlanId:
+    Description: On-demand backup plan ID
+    Value: !Ref OnDemandPlan
+
+  KMSKeyArn:
+    Description: KMS key ARN for backup encryption
+    Value: !GetAtt BackupKMSKey.Arn

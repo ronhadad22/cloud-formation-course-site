@@ -1,0 +1,130 @@
+---
+# ServiceMonitor to collect metrics from all pods in the cluster
+# This monitors the kubelet's cadvisor metrics which provide pod-level resource usage
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet-pod-metrics
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  endpoints:
+  - port: https-metrics
+    scheme: https
+    path: /metrics/cadvisor
+    interval: 30s
+    honorLabels: true
+    tlsConfig:
+      caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecureSkipVerify: true
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabelings:
+    - sourceLabels: [__metrics_path__]
+      targetLabel: metrics_path
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+  jobLabel: k8s-app
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kubelet
+
+---
+# PodMonitor to scrape metrics directly from pods with prometheus.io annotations
+# This is useful for applications that expose their own /metrics endpoint
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: pod-metrics-all-namespaces
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  # Monitor pods in all namespaces
+  namespaceSelector:
+    any: true
+  
+  # Select pods that have prometheus scraping annotations
+  selector:
+    matchExpressions:
+    - key: app
+      operator: Exists
+  
+  podMetricsEndpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+    
+    # Relabel to add pod and namespace labels
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: pod
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_label_app]
+      targetLabel: app
+    - sourceLabels: [__meta_kubernetes_pod_node_name]
+      targetLabel: node
+
+---
+# PrometheusRule for pod-related alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pod-monitoring-rules
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+  - name: pod-metrics
+    interval: 30s
+    rules:
+    # Alert when pod CPU usage is high
+    - alert: PodHighCPUUsage
+      expr: |
+        sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])) by (namespace, pod) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has high CPU usage"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} CPU"
+    
+    # Alert when pod memory usage is high
+    - alert: PodHighMemoryUsage
+      expr: |
+        sum(container_memory_working_set_bytes{container!="",container!="POD"}) by (namespace, pod) / 
+        sum(container_spec_memory_limit_bytes{container!="",container!="POD"}) by (namespace, pod) > 0.9
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has high memory usage"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} of memory limit"
+    
+    # Alert when pod is restarting frequently
+    - alert: PodFrequentRestarts
+      expr: |
+        rate(kube_pod_container_status_restarts_total[15m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+    
+    # Alert when pod is not ready
+    - alert: PodNotReady
+      expr: |
+        kube_pod_status_phase{phase!~"Running|Succeeded"} > 0
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} state for more than 10 minutes"

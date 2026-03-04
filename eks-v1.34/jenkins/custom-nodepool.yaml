@@ -1,0 +1,60 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: custom-workloads
+  labels:
+    app.kubernetes.io/managed-by: eks
+spec:
+  # Disruption settings
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 60s
+    budgets:
+      - nodes: "20%"
+  
+  # Node template
+  template:
+    metadata:
+      labels:
+        nodepool-type: "custom"
+    spec:
+      # Node expiration
+      expireAfter: 168h  # 7 days (shorter than default)
+      
+      # Node class reference
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+      
+      # Instance requirements
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]  # Allow both spot and on-demand
+        - key: eks.amazonaws.com/instance-category
+          operator: In
+          values: ["c", "m"]  # Only compute and general purpose
+        - key: eks.amazonaws.com/instance-generation
+          operator: Gt
+          values: ["5"]  # Generation 6 and above
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]  # Only AMD64
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      
+      # Node termination grace period
+      terminationGracePeriod: 12h
+      
+      # Taints for workload isolation
+      taints:
+        - key: "custom-workload"
+          value: "true"
+          effect: "NoSchedule"
+  
+  # Resource limits
+  limits:
+    cpu: 100
+    memory: 100Gi

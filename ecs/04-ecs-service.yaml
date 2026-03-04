@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ECS Service with Service Discovery'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: ecs-demo
+    Description: Environment name prefix
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${EnvironmentName}-nginx
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - EC2
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub ${EnvironmentName}-TaskExecutionRoleArn
+      TaskRoleArn:
+        Fn::ImportValue: !Sub ${EnvironmentName}-TaskRoleArn
+      ContainerDefinitions:
+        - Name: nginx
+          Image: nginx:latest
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub ${EnvironmentName}-LogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: nginx
+
+  ServiceDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: nginx
+      DnsConfig:
+        NamespaceId:
+          Fn::ImportValue: !Sub ${EnvironmentName}-NamespaceId
+        DnsRecords:
+          - Type: A
+            TTL: 60
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${EnvironmentName}-nginx-service
+      Cluster:
+        Fn::ImportValue: !Sub ${EnvironmentName}-ClusterName
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 2
+      LaunchType: EC2
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub ${EnvironmentName}-PrivateSubnet1
+            - Fn::ImportValue: !Sub ${EnvironmentName}-PrivateSubnet2
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${EnvironmentName}-ECSSecurityGroup
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ServiceDiscoveryService.Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-nginx-service
+
+Outputs:
+  ServiceName:
+    Description: ECS Service Name
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${EnvironmentName}-ServiceName
+
+  ServiceArn:
+    Description: ECS Service ARN
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub ${EnvironmentName}-ServiceArn
+
+  ServiceDiscoveryServiceArn:
+    Description: Service Discovery Service ARN
+    Value: !GetAtt ServiceDiscoveryService.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-ServiceDiscoveryArn
+
+  ServiceEndpoint:
+    Description: Service Discovery Endpoint
+    Value: !Sub nginx.${EnvironmentName}.local
+    Export:
+      Name: !Sub ${EnvironmentName}-ServiceEndpoint

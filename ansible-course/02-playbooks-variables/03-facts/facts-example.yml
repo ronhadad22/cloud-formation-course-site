@@ -1,0 +1,101 @@
+---
+- name: Working with Ansible Facts
+  hosts: all
+  
+  tasks:
+    - name: Display all facts
+      debug:
+        var: ansible_facts
+      tags:
+        - never
+        - debug
+    
+    - name: Display OS distribution
+      debug:
+        msg: "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+    
+    - name: Display OS family
+      debug:
+        msg: "OS Family: {{ ansible_os_family }}"
+    
+    - name: Display hostname
+      debug:
+        msg: "Hostname: {{ ansible_hostname }}, FQDN: {{ ansible_fqdn }}"
+    
+    - name: Display IP address
+      debug:
+        msg: "Primary IP: {{ ansible_default_ipv4.address }}"
+    
+    - name: Display all network interfaces
+      debug:
+        msg: "Interfaces: {{ ansible_interfaces }}"
+    
+    - name: Display memory information
+      debug:
+        msg: "Total Memory: {{ ansible_memtotal_mb }} MB, Free: {{ ansible_memfree_mb }} MB"
+    
+    - name: Display CPU information
+      debug:
+        msg: "CPU Cores: {{ ansible_processor_vcpus }}, Architecture: {{ ansible_architecture }}"
+    
+    - name: Display disk information
+      debug:
+        msg: "Disk devices: {{ ansible_devices.keys() | list }}"
+    
+    - name: Use facts in conditional
+      debug:
+        msg: "This is a Debian-based system"
+      when: ansible_os_family == "Debian"
+    
+    - name: Use facts in conditional (RedHat)
+      debug:
+        msg: "This is a RedHat-based system"
+      when: ansible_os_family == "RedHat"
+    
+    - name: Check if system has enough memory
+      debug:
+        msg: "System has sufficient memory (>= 2GB)"
+      when: ansible_memtotal_mb >= 2048
+    
+    - name: Create custom fact directory
+      file:
+        path: /etc/ansible/facts.d
+        state: directory
+        mode: '0755'
+      become: yes
+    
+    - name: Deploy custom fact
+      copy:
+        content: |
+          [application]
+          name=myapp
+          version=1.0.0
+          environment=production
+        dest: /etc/ansible/facts.d/custom.fact
+        mode: '0644'
+      become: yes
+    
+    - name: Reload facts to include custom facts
+      setup:
+        filter: ansible_local
+    
+    - name: Display custom fact
+      debug:
+        msg: "Custom fact - App: {{ ansible_local.custom.application.name }}"
+      when: ansible_local.custom is defined
+    
+    - name: Gather only specific facts (performance optimization)
+      setup:
+        gather_subset:
+          - network
+          - hardware
+      tags:
+        - never
+        - minimal
+    
+    - name: Filter facts by pattern
+      setup:
+        filter: ansible_eth*
+      tags:
+        - never
+        - network

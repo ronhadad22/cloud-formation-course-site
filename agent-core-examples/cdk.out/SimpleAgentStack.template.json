@@ -1,0 +1,132 @@
+{
+ "Description": "Simple Bedrock Agent example for learning Agent Core concepts",
+ "Resources": {
+  "AgentRoleF4A42D6B": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "bedrock.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "Role for Bedrock Agent"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SimpleAgentStack/AgentRole/Resource"
+   }
+  },
+  "AgentRoleDefaultPolicy1027F5D2": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "bedrock:InvokeModel",
+       "Effect": "Allow",
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "AgentRoleDefaultPolicy1027F5D2",
+    "Roles": [
+     {
+      "Ref": "AgentRoleF4A42D6B"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SimpleAgentStack/AgentRole/DefaultPolicy/Resource"
+   }
+  },
+  "MyFirstAgent": {
+   "Type": "AWS::Bedrock::Agent",
+   "Properties": {
+    "AgentName": "simple-learning-agent",
+    "AgentResourceRoleArn": {
+     "Fn::GetAtt": [
+      "AgentRoleF4A42D6B",
+      "Arn"
+     ]
+    },
+    "Description": "A simple agent for learning Agent Core concepts",
+    "FoundationModel": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "IdleSessionTTLInSeconds": 600,
+    "Instruction": "You are a helpful assistant that can answer questions about AWS services.\n      Be concise and accurate in your responses."
+   },
+   "Metadata": {
+    "aws:cdk:path": "SimpleAgentStack/MyFirstAgent"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/yWLSw7CIBQAz9I9PJEm7k0PoKkHMBRezSsUDB8bQ7i7sV3NzGIkyL4H0aktcW0sdzRBfWSlLVNbelZSK9QxOGTD7HfegyP9/edhjU1oYtAWhtlfX+hzYyOmUKLep1vJ75Ib88EgLOn0kQLOFxDdkoh4LD7TijAe/AH3qWvFjwAAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "SimpleAgentStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "AgentId": {
+   "Description": "The ID of the created agent",
+   "Value": {
+    "Fn::GetAtt": [
+     "MyFirstAgent",
+     "AgentId"
+    ]
+   }
+  },
+  "AgentArn": {
+   "Description": "The ARN of the created agent",
+   "Value": {
+    "Fn::GetAtt": [
+     "MyFirstAgent",
+     "AgentArn"
+    ]
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

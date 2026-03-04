@@ -1,0 +1,58 @@
+autoDiscovery:
+  clusterName: student-eks-cluster
+  enabled: true
+
+awsRegion: us-east-1
+
+rbac:
+  create: true
+  serviceAccount:
+    create: true
+    name: cluster-autoscaler
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::950555670656:role/ClusterAutoscalerRole
+
+# Resource limits
+resources:
+  limits:
+    cpu: 100m
+    memory: 300Mi
+  requests:
+    cpu: 100m
+    memory: 300Mi
+
+# Cluster Autoscaler configuration
+extraArgs:
+  skip-nodes-with-local-storage: false
+  skip-nodes-with-system-pods: false
+  balance-similar-node-groups: true
+  expander: least-waste
+  scale-down-delay-after-add: 10m
+  scale-down-unneeded-time: 10m
+  scale-down-utilization-threshold: 0.5
+
+# Pod priority
+priorityClassName: system-cluster-critical
+
+# Node selector - removed to allow scheduling on any node
+# nodeSelector:
+#   node-role: system
+
+# Tolerations for system nodes
+tolerations:
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# Image configuration
+image:
+  repository: registry.k8s.io/autoscaling/cluster-autoscaler
+  tag: v1.30.0
+  pullPolicy: IfNotPresent
+
+# Enable metrics
+serviceMonitor:
+  enabled: false
+
+# Replica count
+replicaCount: 1
