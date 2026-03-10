@@ -361,15 +361,21 @@ Resources:
           chmod +x /home/ec2-user/bad-app.py
           chown ec2-user:ec2-user /home/ec2-user/bad-app.py
 
+          # ---- Write region config ----
+          REGION="${AWS::Region}"
+          echo "$REGION" > /home/ec2-user/.aws_region
+
           # ---- fixed-app.py ----
           cat > /home/ec2-user/fixed-app.py <<'FIXEDAPP'
           #!/usr/bin/env python3
           """CloudShop - SECURE code using Secrets Manager"""
-          import json
+          import json, os
           import boto3
 
-          def get_secret(secret_name, region="us-east-1"):
-              client = boto3.client("secretsmanager", region_name=region)
+          REGION = open(os.path.expanduser("~/.aws_region")).read().strip()
+
+          def get_secret(secret_name):
+              client = boto3.client("secretsmanager", region_name=REGION)
               response = client.get_secret_value(SecretId=secret_name)
               return json.loads(response["SecretString"])
 

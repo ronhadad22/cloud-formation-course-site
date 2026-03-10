@@ -7,12 +7,31 @@ No hardcoded passwords - secrets are fetched securely at runtime!
 """
 
 import json
+import os
+import urllib.request
 import boto3
 
 
-def get_secret(secret_name, region="us-east-1"):
+def get_region():
+    """Auto-detect region from EC2 metadata or ~/.aws_region file"""
+    # Try region file first (written by CloudFormation UserData)
+    region_file = os.path.expanduser("~/.aws_region")
+    if os.path.exists(region_file):
+        return open(region_file).read().strip()
+    # Try EC2 instance metadata
+    try:
+        url = "http://169.254.169.254/latest/meta-data/placement/region"
+        return urllib.request.urlopen(url, timeout=2).read().decode()
+    except Exception:
+        return "us-east-1"
+
+
+REGION = get_region()
+
+
+def get_secret(secret_name):
     """Retrieve a secret from AWS Secrets Manager"""
-    client = boto3.client("secretsmanager", region_name=region)
+    client = boto3.client("secretsmanager", region_name=REGION)
     response = client.get_secret_value(SecretId=secret_name)
     return json.loads(response["SecretString"])
 
