@@ -61,7 +61,16 @@ Note down:
 - **WebServerPublicIP**
 - **SSHCommand**
 
-**Important**: Check your email and **confirm the SNS subscription** - you'll need this for alerts later!
+### ⚠️ Confirm SNS Email Subscription (DO THIS NOW!)
+
+1. Check your email inbox (also check **spam/junk/promotions** folder)
+2. Look for an email from **AWS Notifications** with subject: **"AWS Notification - Subscription Confirmation"**
+3. Click the **"Confirm subscription"** link in the email
+4. You should see a confirmation page saying "Subscription confirmed!"
+
+> **If you skip this step, you will NOT receive security alerts in Part 4!**
+
+---
 
 Open the CloudShop web page in your browser:
 ```
