@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS Security Lab - Basic Infrastructure for Security Groups and GuardDuty'
+Description: 'AWS Security Lab - AWS Secrets Manager and GuardDuty'
 
 Parameters:
   KeyPairName:
@@ -67,23 +67,82 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
 
   # ============================================================
-  # Security Groups (Basic setup - students will modify)
+  # Security Group
   # ============================================================
   WebServerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: web-server-sg
-      GroupDescription: Security group for web server (students will modify this)
+      GroupDescription: Security group for web server
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-          Description: SSH access (INSECURE - students will fix this)
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access
       Tags:
         - Key: Name
           Value: web-server-sg
+
+  # ============================================================
+  # Secrets Manager - Database Credentials
+  # ============================================================
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-db-credentials'
+      Description: Database credentials for security lab
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: security-lab-db-secret
+
+  # ============================================================
+  # Secrets Manager - API Key (students will create this manually)
+  # ============================================================
+  
+  # ============================================================
+  # IAM Role for EC2 to access Secrets Manager
+  # ============================================================
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: !Ref DatabaseSecret
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
 
   # ============================================================
   # EC2 Instance (Web Server)
@@ -94,6 +153,7 @@ Resources:
       ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
       InstanceType: t3.micro
       KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref EC2InstanceProfile
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
         - !Ref WebServerSG
@@ -101,29 +161,61 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           yum update -y
-          yum install -y httpd
+          yum install -y httpd jq aws-cli
           systemctl start httpd
           systemctl enable httpd
+          
+          # Create a demo script to retrieve secrets
+          cat > /home/ec2-user/get-secret.sh <<'SCRIPT'
+          #!/bin/bash
+          # Retrieve database credentials from Secrets Manager
+          SECRET_ARN="${DatabaseSecret}"
+          REGION="${AWS::Region}"
+          
+          echo "Retrieving secret from AWS Secrets Manager..."
+          SECRET_JSON=$(aws secretsmanager get-secret-value \
+            --secret-id $SECRET_ARN \
+            --region $REGION \
+            --query SecretString \
+            --output text)
+          
+          echo "Database Credentials:"
+          echo $SECRET_JSON | jq .
+          SCRIPT
+          
+          chmod +x /home/ec2-user/get-secret.sh
+          chown ec2-user:ec2-user /home/ec2-user/get-secret.sh
           
           # Create a simple web page
           cat > /var/www/html/index.html <<'EOF'
           <!DOCTYPE html>
           <html>
           <head>
-              <title>AWS Security Lab</title>
+              <title>AWS Security Lab - Secrets Manager</title>
               <style>
                   body { font-family: Arial, sans-serif; margin: 50px; background: #f0f0f0; }
                   .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
                   h1 { color: #232f3e; }
                   .status { color: #28a745; font-weight: bold; }
+                  .code-block { background: #f4f4f4; padding: 15px; border-radius: 5px; font-family: monospace; }
               </style>
           </head>
           <body>
               <div class="container">
                   <h1>🔒 AWS Security Lab</h1>
+                  <h2>Secrets Manager Demo</h2>
                   <p class="status">✓ Web Server is Running</p>
-                  <p>This server is protected by AWS Security Groups.</p>
-                  <p>Server IP: <code id="ip"></code></p>
+                  <p>This server can securely retrieve secrets from AWS Secrets Manager using IAM roles.</p>
+                  <h3>Instructions:</h3>
+                  <ol>
+                      <li>SSH into this server</li>
+                      <li>Run: <code>./get-secret.sh</code></li>
+                      <li>See database credentials retrieved securely!</li>
+                  </ol>
+                  <div class="code-block">
+                      ssh -i your-key.pem ec2-user@<span id="ip">loading...</span><br>
+                      ./get-secret.sh
+                  </div>
                   <script>
                       fetch('https://api.ipify.org?format=json')
                           .then(r => r.json())
@@ -141,8 +233,6 @@ Outputs:
   VPCId:
     Description: VPC ID
     Value: !Ref VPC
-    Export:
-      Name: !Sub '${AWS::StackName}-VPC'
 
   WebServerPublicIP:
     Description: Web Server Public IP
@@ -152,10 +242,18 @@ Outputs:
     Description: Web Server URL
     Value: !Sub 'http://${WebServer.PublicIp}'
 
-  WebServerSecurityGroup:
-    Description: Web Server Security Group ID
-    Value: !Ref WebServerSG
+  DatabaseSecretARN:
+    Description: Database Secret ARN
+    Value: !Ref DatabaseSecret
+
+  DatabaseSecretName:
+    Description: Database Secret Name
+    Value: !Sub '${AWS::StackName}-db-credentials'
 
   SSHCommand:
     Description: SSH Command to connect to web server
     Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${WebServer.PublicIp}'
+  
+  GetSecretCommand:
+    Description: Command to retrieve secret (run on EC2)
+    Value: './get-secret.sh'
