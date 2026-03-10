@@ -1,34 +1,30 @@
-# AWS Security Lab - Secrets Manager & GuardDuty
+# AWS Security Lab - The CloudShop Incident
 
-Learn AWS security best practices with hands-on exercises using AWS Secrets Manager and GuardDuty.
+## The Story
 
-## What You'll Learn
+You just started your first day as a **DevOps/Security Engineer** at **CloudShop** - a growing e-commerce startup selling cloud-themed merchandise.
 
-- **AWS Secrets Manager**: Securely store and retrieve database credentials, API keys, and other secrets
-- **GuardDuty**: Intelligent threat detection that monitors for malicious activity
-- **IAM Roles**: How EC2 instances securely access AWS services without hardcoded credentials
-- **Security Best Practices**: Never hardcode secrets, use IAM roles, monitor for threats
+Your manager calls you into a meeting:
 
----
+> "We have a problem. Our junior developer, Dave, hardcoded the production database password directly in the application code and pushed it to our public GitHub repo last night. We've already changed the password, but we need you to **fix the root cause** so this never happens again."
+>
+> "Also, we've been seeing some weird traffic on our servers lately. We think someone might have found the leaked credentials. Can you set up **threat monitoring** so we know if we're being attacked?"
 
-## Lab Cost Estimate
-
-- **Secrets Manager**: $0.40/secret/month (~$0.40 for this lab)
-- **GuardDuty**: 30-day free trial, then ~$4.50/month
-- **EC2 t3.micro**: ~$0.01/hour (~$0.50 if you run for a few hours)
-- **Total**: **Under $1** if you clean up after the lab!
-
-**Important**: Delete the stack when done to avoid ongoing charges.
+**Your Mission:**
+1. Discover the security mess Dave created
+2. Fix it using **AWS Secrets Manager**
+3. Set up **GuardDuty** for threat detection
+4. Simulate an attack and catch it with **real-time alerts**
 
 ---
 
-## Architecture
+## Lab Cost
 
-```
-Developer → EC2 Instance → IAM Role → Secrets Manager
-                ↓
-           GuardDuty (monitoring threats)
-```
+- **EC2 t3.micro**: ~$0.01/hour
+- **Secrets Manager**: ~$0.40/secret/month
+- **GuardDuty**: 30-day free trial
+- **SNS**: Free tier covers email alerts
+- **Total**: **Under $2** if you clean up after the lab
 
 ---
 
@@ -39,21 +35,21 @@ Developer → EC2 Instance → IAM Role → Secrets Manager
 
 ---
 
-## Part 1: Deploy the Infrastructure
+## Part 1: Deploy CloudShop Infrastructure
 
-Deploy the CloudFormation stack:
+Deploy the CloudFormation stack that creates CloudShop's server, a database secret, GuardDuty detector, and an SNS alert topic:
 
 ```bash
 aws cloudformation deploy \
   --stack-name aws-security-lab \
   --template-file aws-security-lab/cloudformation/01-infrastructure.yaml \
-  --parameter-overrides KeyPairName=<YOUR-KEY-PAIR-NAME> \
+  --parameter-overrides \
+    KeyPairName=<YOUR-KEY-PAIR-NAME> \
+    AlertEmail=<YOUR-EMAIL> \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
-**Wait ~3 minutes** for the stack to complete.
-
-Get the outputs:
+**Wait ~3 minutes**, then get the outputs:
 
 ```bash
 aws cloudformation describe-stacks \
@@ -63,332 +59,366 @@ aws cloudformation describe-stacks \
 
 Note down:
 - **WebServerPublicIP**
-- **WebServerURL**
-- **DatabaseSecretARN**
-- **DatabaseSecretName**
+- **SSHCommand**
+
+**Important**: Check your email and **confirm the SNS subscription** - you'll need this for alerts later!
+
+Open the CloudShop web page in your browser:
+```
+http://<WebServerPublicIP>
+```
 
 ---
 
-## Part 2: AWS Secrets Manager Hands-On
+## Part 2: Discover the Security Mess
 
-### Exercise 1: View the Secret in Console
+### Exercise 1: See Dave's Mistake
+
+SSH into the CloudShop server:
+
+```bash
+ssh -i <YOUR-KEY-PAIR>.pem ec2-user@<WebServerPublicIP>
+```
+
+Run Dave's insecure application code:
+
+```bash
+python3 bad-app.py
+```
+
+**You'll see:**
+```
+==================================================
+  CloudShop - INSECURE Application
+==================================================
+
+[DB] Host: cloudshop-db.us-east-1.rds.amazonaws.com
+[DB] User: admin
+[DB] Password: CloudShop2026!SuperSecret
+[API] Stripe Key: sk_live_abc123_FAKE_KEY
+
+PROBLEMS:
+  - All credentials are VISIBLE in source code!
+  - If pushed to GitHub, anyone can read them!
+  - Attackers scan GitHub for leaked credentials!
+```
+
+**This is the problem.** Every credential is hardcoded in plain text. If this code reaches GitHub (which it did), anyone in the world can read CloudShop's database password and Stripe API key.
+
+---
+
+### Exercise 2: Understand the Risk
+
+Think about what an attacker could do with these leaked credentials:
+
+- **Database password** → Read all customer data, orders, payment info
+- **Stripe API key** → Make unauthorized charges or refunds
+- **Server access** → Install malware, crypto miners, use as attack launchpad
+
+This happens in the real world! GitHub has tools that scan for leaked secrets, but not all platforms do. Prevention is better than detection.
+
+---
+
+## Part 3: Fix It with AWS Secrets Manager
+
+### Exercise 3: View the Secure Secret
+
+CloudFormation already created a secure database secret for us. Let's see it:
 
 1. Go to **Secrets Manager Console**: https://console.aws.amazon.com/secretsmanager/
-2. You'll see a secret named `aws-security-lab-db-credentials`
-3. Click on the secret name
-4. Click **Retrieve secret value**
-5. You'll see:
-   ```json
-   {
-     "username": "admin",
-     "password": "randomly-generated-password"
-   }
-   ```
+2. Click on `aws-security-lab-db-credentials`
+3. Click **Retrieve secret value**
 
-**Key Point**: The password was automatically generated by CloudFormation - you never saw it in plain text!
+You'll see a JSON with:
+- `username`: admin
+- `password`: (auto-generated random password)
+- `host`: cloudshop-db.internal
+- `dbname`: cloudshop_orders
+
+**Key Point**: The password was randomly generated by CloudFormation. Nobody ever typed it. Nobody ever saw it until now.
 
 ---
 
-### Exercise 2: Retrieve Secret from EC2 (Secure Method)
+### Exercise 4: Create the Stripe API Secret
 
-Now let's retrieve the secret from the EC2 instance using IAM roles:
+Dave also hardcoded the Stripe API key. Let's store it securely:
 
-1. **SSH into the EC2 instance:**
-   ```bash
-   ssh -i <YOUR-KEY-PAIR>.pem ec2-user@<WebServerPublicIP>
-   ```
-
-2. **Run the pre-installed script:**
-   ```bash
-   ./get-secret.sh
-   ```
-
-3. **You'll see:**
-   ```
-   Retrieving secret from AWS Secrets Manager...
-   Database Credentials:
-   {
-     "username": "admin",
-     "password": "XyZ123..."
-   }
-   ```
-
-**How it works:**
-- EC2 instance has an IAM role attached
-- IAM role has permission to read from Secrets Manager
-- No credentials needed on the instance!
-- This is **secure** - no hardcoded passwords!
-
----
-
-### Exercise 3: Create Your Own Secret (Manual)
-
-Let's create an API key secret manually through the Console:
-
-1. Go to **Secrets Manager Console**
-2. Click **Store a new secret**
-3. Select **Other type of secret**
-4. Add key-value pairs:
+1. In **Secrets Manager Console**, click **Store a new secret**
+2. Select **Other type of secret**
+3. Add key-value pair:
    - Key: `api_key`
-   - Value: `my-super-secret-api-key-12345`
-5. Click **Next**
-6. **Secret name**: `aws-security-lab-api-key`
-7. **Description**: "API key for external service"
-8. Click **Next** → **Next** → **Store**
+   - Value: `sk_live_SECURE_stripe_key_2026`
+4. Click **Next**
+5. **Secret name**: `aws-security-lab-api-key`
+6. **Description**: CloudShop Stripe API key
+7. Click **Next** → **Next** → **Store**
 
 ---
 
-### Exercise 4: Retrieve Your Secret via CLI
+### Exercise 5: Run the Fixed Application
 
-From your EC2 instance, retrieve the API key you just created:
+Back on the EC2 instance, run the secure version:
+
+```bash
+python3 fixed-app.py
+```
+
+**You'll see:**
+```
+==================================================
+  CloudShop - SECURE Application
+  Credentials from AWS Secrets Manager
+==================================================
+
+[DB] User: admin
+[DB] Password: **************** (hidden)
+[DB] Host: cloudshop-db.internal
+[DB] Database: cloudshop_orders
+
+[API] Stripe Key: sk_live_...*************** (partially hidden)
+
+SECURE:
+  + Zero credentials in source code
+  + Secrets retrieved at runtime via IAM role
+  + Can rotate without code changes
+  + CloudTrail logs every access
+```
+
+**Compare the two:**
+
+| | bad-app.py | fixed-app.py |
+|---|---|---|
+| **Credentials in code** | Yes - all visible! | None |
+| **GitHub safe** | No - anyone can read them | Yes - nothing to leak |
+| **Rotation** | Requires code change | Just update the secret |
+| **Audit trail** | None | CloudTrail logs every access |
+| **Access control** | Anyone with code access | Only IAM-authorized roles |
+
+---
+
+### Exercise 6: Retrieve Secret via CLI
+
+You can also retrieve secrets from the command line:
+
+```bash
+./get-secret.sh
+```
+
+Or directly:
 
 ```bash
 aws secretsmanager get-secret-value \
-  --secret-id aws-security-lab-api-key \
-  --region us-east-1 \
+  --secret-id aws-security-lab-db-credentials \
   --query SecretString \
   --output text | jq .
 ```
 
-**You'll see:**
-```json
-{
-  "api_key": "my-super-secret-api-key-12345"
-}
-```
+**How does the EC2 instance have permission?**
+- The instance has an **IAM Role** attached
+- The role has a policy allowing `secretsmanager:GetSecretValue`
+- No AWS credentials are stored on the instance
+- AWS handles authentication automatically
 
 ---
 
-### Exercise 5: Update a Secret (Rotation)
+### Exercise 7: Rotate a Secret
 
-Secrets should be rotated regularly for security:
+The CTO asks: "Can we change the database password without updating the code?"
 
 1. Go to **Secrets Manager Console**
-2. Click on `aws-security-lab-api-key`
-3. Click **Retrieve secret value**
-4. Click **Edit**
-5. Change the `api_key` value to: `new-rotated-key-67890`
-6. Click **Save**
+2. Click on `aws-security-lab-db-credentials`
+3. Click **Retrieve secret value** → **Edit**
+4. Change the `password` to something new
+5. Click **Save**
 
-7. **Retrieve it again from EC2:**
-   ```bash
-   aws secretsmanager get-secret-value \
-     --secret-id aws-security-lab-api-key \
-     --region us-east-1 \
-     --query SecretString \
-     --output text | jq .
-   ```
+Now run the fixed app again:
 
-**You'll see the updated value!** No code changes needed - applications automatically get the new secret.
+```bash
+python3 fixed-app.py
+```
+
+The app shows the **new password** automatically. Zero code changes needed!
+
+In production, Secrets Manager can rotate passwords **automatically** on a schedule using Lambda functions.
 
 ---
 
-### Exercise 6: Secret Versioning
+## Part 4: Threat Detection with GuardDuty
 
-Secrets Manager keeps version history:
+The leaked credentials may have already been used by attackers. Let's set up monitoring.
 
-1. In the Console, click on `aws-security-lab-api-key`
-2. Scroll down to **Secret versions**
-3. You'll see multiple versions with timestamps
-4. Each version has a unique **Version ID**
+### Exercise 8: Explore GuardDuty
 
-**Use Case**: If you accidentally rotate to a bad value, you can retrieve the previous version!
-
----
-
-## Part 3: AWS GuardDuty Hands-On
-
-GuardDuty monitors for security threats across your AWS account.
-
-### Exercise 7: Enable GuardDuty
+GuardDuty was automatically enabled by our CloudFormation stack.
 
 1. Go to **GuardDuty Console**: https://console.aws.amazon.com/guardduty/
-2. Click **Get Started**
-3. Click **Enable GuardDuty**
+2. Click **Summary** - this is your security dashboard
+3. Click **Findings** - currently empty (that's good!)
 
-**Note**: 30-day free trial, then ~$4.50/month. Make sure to disable it after the lab!
-
----
-
-### Exercise 8: Generate Sample Findings
-
-GuardDuty can generate sample findings so you can see what real threats look like:
-
-1. In **GuardDuty Console** → Click **Settings** (left sidebar)
-2. Scroll down to **Sample findings**
-3. Click **Generate sample findings**
-
-4. Go to **Findings** (left sidebar)
-5. You'll see ~50 sample findings across different categories:
-   - **Backdoor** - Instance communicating with known malicious IPs
-   - **CryptoCurrency** - Bitcoin mining detected
-   - **Recon** - Port scanning or reconnaissance activity
-   - **Trojan** - Malware detected
-   - **UnauthorizedAccess** - Brute force attacks, unusual API calls
+GuardDuty monitors:
+- **VPC Flow Logs** - network traffic patterns
+- **DNS Logs** - suspicious domain lookups
+- **CloudTrail** - unusual API activity
 
 ---
 
-### Exercise 9: Investigate a Finding
+### Exercise 9: Simulate an Attack
 
-Let's examine a specific threat:
+Now comes the fun part. Let's simulate what an attacker would do if they compromised the CloudShop server.
 
-1. Click on **UnauthorizedAccess:EC2/SSHBruteForce**
-2. Review the details:
-   - **Severity**: Medium/High
-   - **Resource**: Which EC2 instance
-   - **Action**: What happened (SSH brute force attempt)
-   - **Actor**: Source IP address
-   - **Count**: How many attempts
+SSH into the server and run the attack simulation:
 
-3. **Recommended Actions**:
-   - Review security group rules
-   - Block the source IP
-   - Investigate if any attempts succeeded
-   - Rotate credentials if compromised
-
----
-
-### Exercise 10: Filter Findings by Severity
-
-Focus on the most critical threats:
-
-1. In **GuardDuty Console** → **Findings**
-2. Click **Add filter criteria**
-3. Select **Severity** → **High**
-4. Click **Apply**
-
-Now you only see high-severity threats that need immediate attention!
-
----
-
-### Exercise 11: Understand Finding Types
-
-GuardDuty categorizes findings by threat type:
-
-| Category | Example | What it means |
-|----------|---------|---------------|
-| **Backdoor** | Backdoor:EC2/C&CActivity.B | Instance talking to command & control server |
-| **CryptoCurrency** | CryptoCurrency:EC2/BitcoinTool.B | Unauthorized crypto mining |
-| **Recon** | Recon:EC2/PortProbeUnprotectedPort | Someone scanning for open ports |
-| **Trojan** | Trojan:EC2/DNSDataExfiltration | Data being stolen via DNS |
-| **UnauthorizedAccess** | UnauthorizedAccess:IAMUser/MaliciousIPCaller | Suspicious API calls from known bad IPs |
-
----
-
-### Exercise 12: Archive Findings
-
-Once you've investigated a finding, you can archive it:
-
-1. Select a finding (checkbox)
-2. Click **Actions** → **Archive**
-3. The finding is hidden from the main view
-
-**Use Case**: Keep your findings list clean by archiving false positives or resolved issues.
-
----
-
-## Part 4: Security Best Practices
-
-### What We Learned
-
-**1. Never Hardcode Secrets**
-❌ **Bad:**
-```python
-db_password = "admin123"  # NEVER DO THIS!
+```bash
+./simulate-attack.sh
 ```
 
-✅ **Good:**
-```python
-import boto3
-client = boto3.client('secretsmanager')
-secret = client.get_secret_value(SecretId='db-credentials')
-db_password = json.loads(secret['SecretString'])['password']
-```
+**The script simulates 4 real attack patterns:**
 
-**2. Use IAM Roles for EC2**
-- No need to store AWS credentials on the instance
-- Automatically rotated by AWS
-- Fine-grained permissions
+1. **Crypto Mining** - DNS lookups to known mining pool domains
+   - Real attackers install Bitcoin miners on compromised servers
+   - GuardDuty detects DNS queries to known mining domains
 
-**3. Rotate Secrets Regularly**
-- Secrets Manager supports automatic rotation
-- Reduces risk if a secret is compromised
-- Can be automated with Lambda functions
+2. **Command & Control** - Communication with malicious servers
+   - Malware "phones home" to the attacker's server for instructions
+   - GuardDuty maintains a threat intelligence database of known bad domains
 
-**4. Monitor with GuardDuty**
-- Detects threats you might miss
-- Uses machine learning to identify anomalies
-- Integrates with CloudWatch Events for automated responses
+3. **Port Scanning** - Scanning internal network for other targets
+   - After compromising one server, attackers look for more
+   - GuardDuty detects unusual port scan patterns
+
+4. **API Reconnaissance** - Trying to discover AWS resources
+   - Attacker tries to list IAM users, S3 buckets, EC2 instances
+   - GuardDuty flags unusual API call patterns
 
 ---
 
-## Secrets Manager vs Parameter Store
+### Exercise 10: Check GuardDuty Findings
 
-| Feature | Secrets Manager | Parameter Store |
-|---------|----------------|-----------------|
-| **Cost** | $0.40/secret/month | Free (Standard), $0.05/advanced |
-| **Rotation** | Built-in automatic rotation | Manual only |
-| **Encryption** | Always encrypted | Optional |
-| **Use Case** | Database passwords, API keys | Configuration values, non-sensitive data |
-| **Versioning** | Automatic | Manual |
+**Wait 5-15 minutes** for GuardDuty to process the events, then:
 
-**When to use Secrets Manager**: Sensitive credentials that need rotation
-**When to use Parameter Store**: Configuration values, less sensitive data
+1. Go to **GuardDuty Console** → **Findings**
+2. You should see findings like:
+   - **CryptoCurrency:EC2/BitcoinTool.B!DNS** - Crypto mining detected!
+   - **Backdoor:EC2/C&CActivity.B!DNS** - Command & control communication!
+
+3. **Click on a finding** to see:
+   - **Severity**: How dangerous is this? (scale of 0-10)
+   - **Resource**: Which EC2 instance is affected
+   - **Action**: What suspicious activity was detected
+   - **Actor**: Network details of the suspicious activity
+   - **Recommendation**: What you should do about it
 
 ---
 
-## Real-World Use Cases
+### Exercise 11: Check Your Email Alert
 
-### Use Case 1: Database Credentials
-```python
-# Application retrieves DB password from Secrets Manager
-# Password is rotated every 30 days automatically
-# No code changes needed when password rotates
+If you confirmed the SNS subscription earlier, you should have received an email:
+
+```
+Subject: CloudShop Security Alerts
+
+SECURITY ALERT - CloudShop
+
+Severity: 8
+Finding: CryptoCurrency:EC2/BitcoinTool.B!DNS
+Description: EC2 instance is querying a domain associated with Bitcoin...
+Region: us-east-1
+
+Action Required: Review this finding in the GuardDuty console immediately.
 ```
 
-### Use Case 2: API Keys for Third-Party Services
-```python
-# Store Stripe API key, SendGrid key, etc.
-# Rotate when employee leaves
-# Audit who accessed the secret
-```
+**This is powerful!** In a real environment:
+- Alert fires within minutes of an attack
+- On-call engineer gets notified immediately
+- Can be connected to Slack, PagerDuty, or Lambda for auto-remediation
 
-### Use Case 3: GuardDuty + Lambda Auto-Response
-```python
-# GuardDuty detects SSH brute force
-# Triggers CloudWatch Event
-# Lambda function automatically blocks the IP in security group
-```
+---
+
+### Exercise 12: Generate Sample Findings (Optional)
+
+To see the full range of threats GuardDuty can detect:
+
+1. Go to **GuardDuty Console** → **Settings**
+2. Click **Generate sample findings**
+3. Go back to **Findings**
+4. Browse through ~50 different threat types
+
+**Filter by severity:**
+1. Click **Add filter criteria** → **Severity** → **High**
+2. See only the critical threats that need immediate attention
+
+---
+
+### Exercise 13: Investigate and Archive
+
+As a security engineer, you need to investigate and resolve findings:
+
+1. Click on a finding
+2. Read the details and understand the threat
+3. Take action (in our case, the attack was simulated)
+4. Select the finding → **Actions** → **Archive**
+
+Archiving keeps your dashboard clean and shows that a finding has been reviewed.
+
+---
+
+## Part 5: What You Learned
+
+### The CloudShop Security Improvement
+
+| Before (Dave's Code) | After (Your Fix) |
+|---|---|
+| Passwords in source code | Secrets in AWS Secrets Manager |
+| Anyone with repo access can see credentials | Only IAM-authorized roles can access |
+| No way to know if secrets were accessed | CloudTrail logs every access |
+| Password change = code deployment | Password change = update secret (zero downtime) |
+| No threat detection | GuardDuty monitoring 24/7 |
+| No alerting | Real-time email alerts via SNS |
+
+### Security Services Summary
+
+| Service | What It Does | Cost |
+|---|---|---|
+| **Secrets Manager** | Stores and rotates secrets securely | $0.40/secret/month |
+| **GuardDuty** | Detects threats using ML and threat intelligence | 30-day free, then ~$4.50/month |
+| **SNS** | Sends alert notifications | Free tier for email |
+| **EventBridge** | Routes GuardDuty findings to SNS | Free for AWS events |
+| **IAM Roles** | Grants EC2 access without hardcoded credentials | Free |
+| **CloudTrail** | Logs all API activity for auditing | Free (basic) |
+
+### Real-World Best Practices
+
+1. **Never hardcode secrets** - Use Secrets Manager or Parameter Store
+2. **Use IAM roles** - Never put AWS credentials on EC2 instances
+3. **Enable GuardDuty** - It's cheap and catches real threats
+4. **Set up alerts** - You can't fix what you don't know about
+5. **Rotate secrets regularly** - Secrets Manager can do this automatically
+6. **Principle of least privilege** - Only grant the minimum permissions needed
 
 ---
 
 ## Cleanup
 
-**IMPORTANT**: Clean up to avoid charges!
+**IMPORTANT: Clean up to avoid ongoing charges!**
 
-### 1. Disable GuardDuty
-1. Go to **GuardDuty Console** → **Settings**
-2. Click **Disable GuardDuty**
-3. Confirm
-
-### 2. Delete Secrets (Optional)
-If you want to delete the secrets immediately:
+### 1. Delete the manually created secret
 ```bash
-aws secretsmanager delete-secret \
-  --secret-id aws-security-lab-db-credentials \
-  --force-delete-without-recovery
-
 aws secretsmanager delete-secret \
   --secret-id aws-security-lab-api-key \
   --force-delete-without-recovery
 ```
 
-### 3. Delete CloudFormation Stack
+### 2. Delete the CloudFormation stack
+This removes the EC2 instance, GuardDuty, SNS, VPC, and the database secret:
 ```bash
 aws cloudformation delete-stack --stack-name aws-security-lab
 ```
 
-**Note**: Secrets Manager has a 7-30 day recovery window by default. Use `--force-delete-without-recovery` to delete immediately.
+### 3. Verify cleanup
+```bash
+aws cloudformation describe-stacks \
+  --stack-name aws-security-lab 2>&1 || echo "Stack deleted successfully!"
+```
 
 ---
 
@@ -396,47 +426,21 @@ aws cloudformation delete-stack --stack-name aws-security-lab
 
 | Problem | Solution |
 |---------|----------|
-| Can't retrieve secret from EC2 | Check IAM role has `secretsmanager:GetSecretValue` permission |
-| "Access Denied" error | Verify the IAM role is attached to the EC2 instance |
-| GuardDuty not showing findings | Wait a few minutes, or generate sample findings |
-| Secret not found | Check the secret name and region match |
+| `fixed-app.py` fails with AccessDenied | Check IAM role is attached to EC2 instance |
+| `fixed-app.py` says "api_key not found" | Complete Exercise 4 first (create the Stripe secret) |
+| No GuardDuty findings after attack | Wait 10-15 minutes, GuardDuty needs time to process |
+| No email alert received | Check spam folder, confirm SNS subscription |
+| SSH connection refused | Check security group allows port 22 |
+| Web page not loading | Check security group allows port 80 |
 
 ---
 
-## Additional Challenges
+## Bonus Challenges
 
-1. **Set up automatic secret rotation** using a Lambda function
+1. **Create a Lambda function** that automatically isolates an EC2 instance when GuardDuty detects a high-severity finding (remove it from its security group)
 
-2. **Create a CloudWatch alarm** that triggers when GuardDuty detects a high-severity finding
+2. **Set up automatic rotation** for the database secret using a Lambda rotation function
 
-3. **Use Secrets Manager with RDS** - enable automatic database password rotation
+3. **Add a Slack notification** instead of email - create a Lambda that posts to a Slack webhook when GuardDuty fires
 
-4. **Implement least privilege** - create a more restrictive IAM policy that only allows reading specific secrets
-
-5. **Export GuardDuty findings to S3** for long-term analysis
-
----
-
-## Key Takeaways
-
-✅ **Secrets Manager** securely stores credentials and supports automatic rotation
-
-✅ **IAM Roles** eliminate the need for hardcoded credentials on EC2 instances
-
-✅ **GuardDuty** provides intelligent threat detection without managing infrastructure
-
-✅ **Never hardcode secrets** in your code or configuration files
-
-✅ **Monitor continuously** - security threats evolve, so must your defenses
-
-✅ **Automate responses** - use Lambda to automatically respond to GuardDuty findings
-
----
-
-## Next Steps
-
-- Learn about **AWS KMS** (Key Management Service) for encryption keys
-- Explore **AWS Certificate Manager** for SSL/TLS certificates
-- Study **AWS WAF** (Web Application Firewall) for application-layer protection
-- Implement **AWS Config** for compliance monitoring
-- Set up **AWS Security Hub** for centralized security management
+4. **Cross-account GuardDuty** - If you have multiple AWS accounts, set up a GuardDuty administrator account

@@ -1,10 +1,15 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS Security Lab - AWS Secrets Manager and GuardDuty'
+Description: 'CloudShop Security Lab - Secrets Manager, GuardDuty & SNS Alerts'
 
 Parameters:
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: EC2 Key Pair for SSH access
+
+  AlertEmail:
+    Type: String
+    Description: Email address for security alerts
+    AllowedPattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
 Resources:
   # ============================================================
@@ -18,7 +23,7 @@ Resources:
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: security-lab-vpc
+          Value: cloudshop-vpc
 
   PublicSubnet:
     Type: AWS::EC2::Subnet
@@ -29,14 +34,14 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: security-lab-public-subnet
+          Value: cloudshop-public-subnet
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: security-lab-igw
+          Value: cloudshop-igw
 
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -50,7 +55,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: security-lab-public-rt
+          Value: cloudshop-public-rt
 
   PublicRoute:
     Type: AWS::EC2::Route
@@ -72,8 +77,8 @@ Resources:
   WebServerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: web-server-sg
-      GroupDescription: Security group for web server
+      GroupName: cloudshop-web-sg
+      GroupDescription: CloudShop web server security group
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -88,31 +93,108 @@ Resources:
           Description: HTTP access
       Tags:
         - Key: Name
-          Value: web-server-sg
+          Value: cloudshop-web-sg
 
   # ============================================================
-  # Secrets Manager - Database Credentials
+  # Secrets Manager - CloudShop Database Credentials
   # ============================================================
   DatabaseSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub '${AWS::StackName}-db-credentials'
-      Description: Database credentials for security lab
+      Description: CloudShop production database credentials
       GenerateSecretString:
-        SecretStringTemplate: '{"username": "admin"}'
-        GenerateStringKey: "password"
+        SecretStringTemplate: '{"username": "admin", "engine": "mysql", "host": "cloudshop-db.internal", "port": "3306", "dbname": "cloudshop_orders"}'
+        GenerateStringKey: password
         PasswordLength: 16
         ExcludeCharacters: '"@/\'
       Tags:
         - Key: Name
-          Value: security-lab-db-secret
+          Value: cloudshop-db-secret
 
   # ============================================================
-  # Secrets Manager - API Key (students will create this manually)
+  # SNS Topic - Security Alerts
   # ============================================================
-  
+  SecurityAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-security-alerts'
+      DisplayName: CloudShop Security Alerts
+
+  SecurityAlertsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref SecurityAlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
   # ============================================================
-  # IAM Role for EC2 to access Secrets Manager
+  # SNS Topic Policy - Allow EventBridge to publish
+  # ============================================================
+  SecurityAlertsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref SecurityAlertsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref SecurityAlertsTopic
+
+  # ============================================================
+  # GuardDuty Detector
+  # ============================================================
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: true
+
+  # ============================================================
+  # EventBridge Rule - GuardDuty → SNS Alert
+  # ============================================================
+  GuardDutyAlertRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-guardduty-alerts'
+      Description: Send GuardDuty findings to SNS
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.guardduty
+        detail-type:
+          - GuardDuty Finding
+        detail:
+          severity:
+            - numeric:
+                - '>='
+                - 4
+      Targets:
+        - Arn: !Ref SecurityAlertsTopic
+          Id: SecurityAlertsSNS
+          InputTransformer:
+            InputPathsMap:
+              severity: $.detail.severity
+              type: $.detail.type
+              description: $.detail.description
+              region: $.region
+              account: $.account
+            InputTemplate: |
+              "SECURITY ALERT - CloudShop"
+              ""
+              "Severity: <severity>"
+              "Finding: <type>"
+              "Description: <description>"
+              "Region: <region>"
+              "Account: <account>"
+              ""
+              "Action Required: Review this finding in the GuardDuty console immediately."
+
+  # ============================================================
+  # IAM Role for EC2
   # ============================================================
   EC2Role:
     Type: AWS::IAM::Role
@@ -137,6 +219,14 @@ Resources:
                   - secretsmanager:GetSecretValue
                   - secretsmanager:DescribeSecret
                 Resource: !Ref DatabaseSecret
+        - PolicyName: SecretsManagerList
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:ListSecrets
+                Resource: '*'
 
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -145,7 +235,7 @@ Resources:
         - !Ref EC2Role
 
   # ============================================================
-  # EC2 Instance (Web Server)
+  # EC2 Instance - CloudShop Web Server
   # ============================================================
   WebServer:
     Type: AWS::EC2::Instance
@@ -161,85 +251,225 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           yum update -y
-          yum install -y httpd jq aws-cli
+          yum install -y httpd jq python3 python3-pip bind-utils
+          pip3 install boto3
           systemctl start httpd
           systemctl enable httpd
-          
-          # Create a demo script to retrieve secrets
+
+          # ---- get-secret.sh ----
           cat > /home/ec2-user/get-secret.sh <<'SCRIPT'
           #!/bin/bash
-          # Retrieve database credentials from Secrets Manager
+          echo "============================================"
+          echo "  CloudShop - Secure Secret Retrieval"
+          echo "============================================"
+          echo ""
           SECRET_ARN="${DatabaseSecret}"
           REGION="${AWS::Region}"
-          
-          echo "Retrieving secret from AWS Secrets Manager..."
+          echo "Contacting AWS Secrets Manager..."
+          echo "Secret: $SECRET_ARN"
+          echo ""
           SECRET_JSON=$(aws secretsmanager get-secret-value \
             --secret-id $SECRET_ARN \
             --region $REGION \
             --query SecretString \
             --output text)
-          
-          echo "Database Credentials:"
+          echo "CloudShop Database Credentials:"
           echo $SECRET_JSON | jq .
+          echo ""
+          echo "Notice: No passwords in the source code!"
+          echo "The IAM role on this EC2 instance grants access."
           SCRIPT
-          
           chmod +x /home/ec2-user/get-secret.sh
           chown ec2-user:ec2-user /home/ec2-user/get-secret.sh
-          
-          # Create a simple web page
+
+          # ---- simulate-attack.sh ----
+          cat > /home/ec2-user/simulate-attack.sh <<'ATTACK'
+          #!/bin/bash
+          echo "=========================================="
+          echo "  CloudShop Incident Simulation"
+          echo "  WARNING: Educational purposes only!"
+          echo "=========================================="
+          echo ""
+          echo "[ATTACK 1] Crypto-mining DNS lookups..."
+          echo "  An attacker installs crypto miners on compromised servers."
+          echo "  GuardDuty detects DNS queries to mining pool domains."
+          echo ""
+          dig pool.minergate.com +short 2>/dev/null || nslookup pool.minergate.com 2>/dev/null || echo "  DNS lookup: pool.minergate.com"
+          dig xmr.pool.minergate.com +short 2>/dev/null || nslookup xmr.pool.minergate.com 2>/dev/null || echo "  DNS lookup: xmr.pool.minergate.com"
+          echo "  --> Expected finding: CryptoCurrency:EC2/BitcoinTool.B!DNS"
+          echo ""
+          echo "[ATTACK 2] Command & Control communication..."
+          echo "  Malware phones home to the attacker's server."
+          echo ""
+          dig guarddutyc2activityb.com +short 2>/dev/null || nslookup guarddutyc2activityb.com 2>/dev/null || echo "  DNS lookup: guarddutyc2activityb.com"
+          echo "  --> Expected finding: Backdoor:EC2/C&CActivity.B!DNS"
+          echo ""
+          echo "[ATTACK 3] Internal port scanning..."
+          echo "  Attacker scans for other targets inside the network."
+          echo ""
+          for port in 22 80 443 3306 5432; do
+              timeout 1 bash -c "echo >/dev/tcp/10.0.1.100/$port" 2>/dev/null
+              echo "  Scanned 10.0.1.100:$port"
+          done
+          echo "  --> Expected finding: Recon:EC2/Portscan"
+          echo ""
+          echo "[ATTACK 4] Suspicious API calls..."
+          echo "  Attacker tries to discover what they can access."
+          echo ""
+          REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-east-1")
+          aws iam list-users --region $REGION 2>&1 | head -3 || true
+          aws s3 ls --region $REGION 2>&1 | head -3 || true
+          echo ""
+          echo "=========================================="
+          echo "  Simulation Complete!"
+          echo "=========================================="
+          echo ""
+          echo "  GuardDuty takes 5-15 minutes to generate findings."
+          echo "  Check: https://console.aws.amazon.com/guardduty/"
+          echo ""
+          echo "  If you set up email alerts, check your inbox!"
+          echo "=========================================="
+          ATTACK
+          chmod +x /home/ec2-user/simulate-attack.sh
+          chown ec2-user:ec2-user /home/ec2-user/simulate-attack.sh
+
+          # ---- bad-app.py ----
+          cat > /home/ec2-user/bad-app.py <<'BADAPP'
+          #!/usr/bin/env python3
+          """CloudShop - INSECURE code with hardcoded credentials"""
+          DB_HOST = "cloudshop-db.us-east-1.rds.amazonaws.com"
+          DB_USER = "admin"
+          DB_PASSWORD = "CloudShop2026!SuperSecret"
+          DB_NAME = "cloudshop_orders"
+          STRIPE_API_KEY = "sk_live_abc123_FAKE_KEY"
+
+          print("=" * 50)
+          print("  CloudShop - INSECURE Application")
+          print("=" * 50)
+          print()
+          print(f"[DB] Host: {DB_HOST}")
+          print(f"[DB] User: {DB_USER}")
+          print(f"[DB] Password: {DB_PASSWORD}")
+          print(f"[API] Stripe Key: {STRIPE_API_KEY}")
+          print()
+          print("PROBLEMS:")
+          print("  - All credentials are VISIBLE in source code!")
+          print("  - If pushed to GitHub, anyone can read them!")
+          print("  - Attackers scan GitHub for leaked credentials!")
+          print()
+          print("YOUR MISSION: Fix this with Secrets Manager!")
+          print("  Run: python3 fixed-app.py")
+          BADAPP
+          chmod +x /home/ec2-user/bad-app.py
+          chown ec2-user:ec2-user /home/ec2-user/bad-app.py
+
+          # ---- fixed-app.py ----
+          cat > /home/ec2-user/fixed-app.py <<'FIXEDAPP'
+          #!/usr/bin/env python3
+          """CloudShop - SECURE code using Secrets Manager"""
+          import json
+          import boto3
+
+          def get_secret(secret_name, region="us-east-1"):
+              client = boto3.client("secretsmanager", region_name=region)
+              response = client.get_secret_value(SecretId=secret_name)
+              return json.loads(response["SecretString"])
+
+          print("=" * 50)
+          print("  CloudShop - SECURE Application")
+          print("  Credentials from AWS Secrets Manager")
+          print("=" * 50)
+          print()
+          try:
+              secret = get_secret("aws-security-lab-db-credentials")
+              print(f"[DB] User: {secret['username']}")
+              print(f"[DB] Password: {'*' * len(secret['password'])} (hidden)")
+              print(f"[DB] Host: {secret.get('host', 'N/A')}")
+              print(f"[DB] Database: {secret.get('dbname', 'N/A')}")
+          except Exception as e:
+              print(f"  Error: {e}")
+          print()
+          try:
+              api_secret = get_secret("aws-security-lab-api-key")
+              key = api_secret.get("api_key", "N/A")
+              print(f"[API] Stripe Key: {key[:8]}...{'*' * 15} (partially hidden)")
+          except Exception as e:
+              print(f"  [API] Not yet created - do Exercise 4 first!")
+          print()
+          print("SECURE:")
+          print("  + Zero credentials in source code")
+          print("  + Secrets retrieved at runtime via IAM role")
+          print("  + Can rotate without code changes")
+          print("  + CloudTrail logs every access")
+          FIXEDAPP
+          chmod +x /home/ec2-user/fixed-app.py
+          chown ec2-user:ec2-user /home/ec2-user/fixed-app.py
+
+          # ---- Web page ----
           cat > /var/www/html/index.html <<'EOF'
           <!DOCTYPE html>
           <html>
           <head>
-              <title>AWS Security Lab - Secrets Manager</title>
+              <title>CloudShop - AWS Security Lab</title>
               <style>
-                  body { font-family: Arial, sans-serif; margin: 50px; background: #f0f0f0; }
-                  .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                  h1 { color: #232f3e; }
-                  .status { color: #28a745; font-weight: bold; }
-                  .code-block { background: #f4f4f4; padding: 15px; border-radius: 5px; font-family: monospace; }
+                  body { font-family: Arial, sans-serif; margin: 0; background: #1a1a2e; color: #eee; }
+                  .header { background: #e94560; padding: 20px 50px; }
+                  .header h1 { margin: 0; color: white; }
+                  .container { max-width: 800px; margin: 30px auto; padding: 0 20px; }
+                  .card { background: #16213e; padding: 25px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #e94560; }
+                  .card h2 { color: #e94560; margin-top: 0; }
+                  .status { color: #0f3460; background: #00ff88; padding: 5px 15px; border-radius: 20px; display: inline-block; font-weight: bold; }
+                  code { background: #0f3460; padding: 3px 8px; border-radius: 4px; color: #00ff88; }
+                  .mission { background: #0f3460; padding: 20px; border-radius: 10px; border: 2px dashed #e94560; }
+                  .alert { color: #e94560; font-weight: bold; }
               </style>
           </head>
           <body>
-              <div class="container">
-                  <h1>🔒 AWS Security Lab</h1>
-                  <h2>Secrets Manager Demo</h2>
-                  <p class="status">✓ Web Server is Running</p>
-                  <p>This server can securely retrieve secrets from AWS Secrets Manager using IAM roles.</p>
-                  <h3>Instructions:</h3>
-                  <ol>
-                      <li>SSH into this server</li>
-                      <li>Run: <code>./get-secret.sh</code></li>
-                      <li>See database credentials retrieved securely!</li>
-                  </ol>
-                  <div class="code-block">
-                      ssh -i your-key.pem ec2-user@<span id="ip">loading...</span><br>
-                      ./get-secret.sh
-                  </div>
-                  <script>
-                      fetch('https://api.ipify.org?format=json')
-                          .then(r => r.json())
-                          .then(d => document.getElementById('ip').textContent = d.ip);
-                  </script>
+              <div class="header">
+                  <h1>CloudShop E-Commerce</h1>
+                  <p>AWS Security Lab - Your First Day as Security Engineer</p>
               </div>
+              <div class="container">
+                  <div class="card">
+                      <span class="status">SERVER ONLINE</span>
+                      <h2>Welcome, Security Engineer!</h2>
+                      <p>You've just joined CloudShop as a DevOps/Security engineer.</p>
+                      <p>A junior developer has <span class="alert">hardcoded database passwords</span> in the application code and pushed them to GitHub!</p>
+                  </div>
+                  <div class="mission">
+                      <h2>Your Mission:</h2>
+                      <ol>
+                          <li>SSH into this server and see the damage: <code>python3 bad-app.py</code></li>
+                          <li>Fix it using AWS Secrets Manager: <code>python3 fixed-app.py</code></li>
+                          <li>Set up threat detection with GuardDuty</li>
+                          <li>Simulate an attack: <code>./simulate-attack.sh</code></li>
+                          <li>Catch the attacker with GuardDuty alerts!</li>
+                      </ol>
+                  </div>
+                  <div class="card">
+                      <h2>SSH Access</h2>
+                      <p><code>ssh -i your-key.pem ec2-user@<span id="ip">loading...</span></code></p>
+                  </div>
+              </div>
+              <script>
+                  fetch('https://api.ipify.org?format=json')
+                      .then(r => r.json())
+                      .then(d => document.getElementById('ip').textContent = d.ip);
+              </script>
           </body>
           </html>
           EOF
       Tags:
         - Key: Name
-          Value: security-lab-web-server
+          Value: cloudshop-web-server
 
 Outputs:
-  VPCId:
-    Description: VPC ID
-    Value: !Ref VPC
-
   WebServerPublicIP:
-    Description: Web Server Public IP
+    Description: CloudShop Web Server Public IP
     Value: !GetAtt WebServer.PublicIp
 
   WebServerURL:
-    Description: Web Server URL
+    Description: CloudShop Web Server URL
     Value: !Sub 'http://${WebServer.PublicIp}'
 
   DatabaseSecretARN:
@@ -250,10 +480,14 @@ Outputs:
     Description: Database Secret Name
     Value: !Sub '${AWS::StackName}-db-credentials'
 
+  GuardDutyDetectorId:
+    Description: GuardDuty Detector ID
+    Value: !Ref GuardDutyDetector
+
+  SecurityAlertsTopicARN:
+    Description: SNS Topic for security alerts
+    Value: !Ref SecurityAlertsTopic
+
   SSHCommand:
-    Description: SSH Command to connect to web server
+    Description: SSH Command
     Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${WebServer.PublicIp}'
-  
-  GetSecretCommand:
-    Description: Command to retrieve secret (run on EC2)
-    Value: './get-secret.sh'
