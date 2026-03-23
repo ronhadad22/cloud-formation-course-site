@@ -78,16 +78,17 @@ Before starting the quiz, study this decision tree:
 
 > **Scenario**: TechShop is an online store preparing for Black Friday. They expect **5 million users** browsing products simultaneously. Each product page must load in **under 10 milliseconds**. Product data is simple: product_id, name, price, category, stock count. Traffic is very spiky — 100x normal during the sale.
 
-**Think about it:**
-- What kind of data is this? (structured/semi-structured/files?)
-- Do we need complex JOINs?
-- Do we need super-fast reads?
-- Does the workload scale unpredictably?
+**Which AWS database service should TechShop use?**
+
+- **A)** Amazon RDS (MySQL) — managed relational database
+- **B)** Amazon DynamoDB — NoSQL key-value store
+- **C)** Amazon Athena + S3 — serverless SQL on files
+- **D)** Amazon Redshift — data warehouse for analytics
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon DynamoDB
+### ✅ Correct Answer: B) Amazon DynamoDB
 
 **Why DynamoDB?**
 - **Millisecond latency** at any scale — handles 5 million concurrent users easily
@@ -96,8 +97,9 @@ Before starting the quiz, study this decision tree:
 - **Simple data model** — no complex relationships between products
 
 **Why NOT the others?**
-- **RDS** would struggle with 5M concurrent users and spiky traffic (needs pre-provisioned capacity)
-- **Athena** is too slow (~seconds per query) for real-time product pages
+- **A) RDS** — would struggle with 5M concurrent users and spiky traffic (needs pre-provisioned capacity)
+- **C) Athena** — too slow (~seconds per query) for real-time product pages
+- **D) Redshift** — designed for analytics workloads, not real-time key-value lookups
 
 </details>
 
@@ -179,16 +181,17 @@ DynamoDB is perfect for TechShop because:
 
 > **Scenario**: CloudTaxi is a ride-sharing company. They have **2 years of ride data** stored as CSV files in S3 — pickup location, dropoff, fare, distance, driver, etc. The analytics team wants to answer questions like: "What's the average fare from Tel Aviv?", "Who is our top driver?", "What's the busiest pickup location?" They query this data a **few times per month** and don't want to manage any infrastructure.
 
-**Think about it:**
-- Where is the data? (already in S3!)
-- How often do they query? (infrequently)
-- Do they need a running database server?
-- What kind of queries? (SQL analytics)
+**Which AWS service should CloudTaxi use for their analytics?**
+
+- **A)** Amazon DynamoDB — NoSQL key-value store
+- **B)** Amazon RDS (MySQL) — managed relational database
+- **C)** Amazon Athena + S3 — serverless SQL on files
+- **D)** Amazon Redshift — data warehouse for analytics
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon Athena + S3
+### ✅ Correct Answer: C) Amazon Athena + S3
 
 **Why Athena?**
 - **Data is already in S3** — no need to load it anywhere else
@@ -197,8 +200,9 @@ DynamoDB is perfect for TechShop because:
 - **Standard SQL** — analysts already know SQL, no new language to learn
 
 **Why NOT the others?**
-- **DynamoDB** can't do analytics queries like GROUP BY, AVG, or JOINs efficiently
-- **RDS** would require loading all the CSV data into a database, keeping a server running 24/7 — wasteful for monthly queries
+- **A) DynamoDB** — can't do analytics queries like GROUP BY, AVG, or JOINs efficiently
+- **B) RDS** — would require loading all the CSV data into a database, keeping a server running 24/7 — wasteful for monthly queries
+- **D) Redshift** — great for analytics but overkill here — requires a running cluster, costly for infrequent queries on small data
 
 </details>
 
@@ -328,16 +332,17 @@ Athena is perfect for CloudTaxi because:
 
 > **Scenario**: MediCare hospital needs a system to manage patients, doctors, appointments, and prescriptions. When a doctor writes a prescription, the system must update the prescription table AND the appointment status **atomically** (both succeed or both fail). They need queries like: "Find all patients who saw Dr. Cohen and were prescribed Aspirin" — which involves **JOINing 4 tables**. The hospital has ~500 concurrent users.
 
-**Think about it:**
-- Is the data structured with relationships?
-- Do we need transactions (ACID)?
-- Do we need complex JOINs across tables?
-- Is the scale moderate (not millions)?
+**Which AWS database service should MediCare use?**
+
+- **A)** Amazon DynamoDB — NoSQL key-value store
+- **B)** Amazon Athena + S3 — serverless SQL on files
+- **C)** Amazon ElastiCache (Redis) — in-memory cache
+- **D)** Amazon RDS (MySQL) — managed relational database
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon RDS (MySQL)
+### ✅ Correct Answer: D) Amazon RDS (MySQL)
 
 **Why RDS?**
 - **Relational data** — patients, doctors, appointments, prescriptions have clear relationships
@@ -346,8 +351,9 @@ Athena is perfect for CloudTaxi because:
 - **500 concurrent users** — well within RDS capacity
 
 **Why NOT the others?**
-- **DynamoDB** doesn't support JOINs natively and transactions are limited to 25 items
-- **Athena** is for analytics on S3 files, not real-time transactional applications
+- **A) DynamoDB** — doesn't support JOINs natively and transactions are limited to 25 items
+- **B) Athena** — read-only analytics on S3 files, not for real-time transactional applications
+- **C) ElastiCache** — great for caching but not a primary database — no persistent storage, no JOINs, no transactions
 
 </details>
 
@@ -512,30 +518,28 @@ RDS is perfect for MediCare because:
 
 > **Scenario**: GameZone is a mobile gaming platform with **10 million active players**. They need to: (1) Get any player's score instantly by player_id, (2) Show the top 100 global leaderboard, (3) Handle **50,000 score updates per second** during peak hours. Data per player: player_id, username, score, level, last_played.
 
-**Think about it:**
-- Is this key-value access pattern?
-- Do we need extreme write throughput?
-- Do we need millisecond reads?
-- Is the data model simple?
+**Which AWS database service should GameZone use?**
+
+- **A)** Amazon RDS (MySQL) — managed relational database
+- **B)** Amazon ElastiCache (Redis) — in-memory cache
+- **C)** Amazon DynamoDB — NoSQL key-value store
+- **D)** Amazon Athena + S3 — serverless SQL on files
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon DynamoDB (with Global Secondary Index)
+### ✅ Correct Answer: C) Amazon DynamoDB (with Global Secondary Index)
 
-**Why DynamoDB again?**
+**Why DynamoDB?**
 - **Key-value pattern** — get player by `player_id` = instant
 - **50K writes/second** — DynamoDB handles this easily with on-demand capacity
 - **GSI** — create an index on `score` to power the leaderboard query
 - **10M players** — no problem, DynamoDB scales to any table size
 
-**Why NOT RDS?**
-- 50K writes/second would overwhelm most RDS instances
-- Leaderboard query with ORDER BY on 10M rows is slow in RDS
-- Would need read replicas and careful tuning
-
-**Why NOT Athena?**
-- Athena has seconds-long query times — not suitable for real-time leaderboard
+**Why NOT the others?**
+- **A) RDS** — 50K writes/second would overwhelm most RDS instances; ORDER BY on 10M rows is slow
+- **B) ElastiCache** — Redis sorted sets could work for leaderboards, but DynamoDB is better as a primary database with persistence and built-in scaling
+- **D) Athena** — seconds-long query times, not suitable for real-time leaderboard
 
 </details>
 
@@ -562,27 +566,28 @@ aws dynamodb scan \
 
 > **Scenario**: A company stores **3 years of web server access logs** (500GB) as gzipped text files in S3. The security team needs to investigate an incident: "Find all requests from IP 192.168.1.100 in the last 30 days." They do this kind of investigation **a few times per month** — no need for real-time dashboards.
 
-**Think about it:**
-- Where is the data? (S3)
-- Is this a one-time/infrequent query?
-- Do they need a running server?
-- Is cost important?
+**Which AWS service should the security team use?**
+
+- **A)** Amazon RDS (MySQL) — managed relational database
+- **B)** Amazon DynamoDB — NoSQL key-value store
+- **C)** Amazon Redshift — data warehouse for analytics
+- **D)** Amazon Athena + S3 — serverless SQL on files
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon Athena + S3
+### ✅ Correct Answer: D) Amazon Athena + S3
 
-**Why Athena again?**
+**Why Athena?**
 - **Data is already in S3** — no copying needed
 - **SQL on files** — `SELECT * FROM logs WHERE source_ip = '192.168.1.100'`
 - **500GB scanned = ~$2.50** — extremely cheap for a security investigation
 - **Serverless** — no server sitting idle between investigations
 
-**Cost comparison:**
-- **Athena**: $2.50 per investigation (pay per query)
-- **RDS**: Would need to load 500GB into a database (~$50/month storage + instance cost)
-- **DynamoDB**: Not designed for full-text search across logs
+**Why NOT the others?**
+- **A) RDS** — would need to load 500GB into a database (~$50/month storage + instance cost running 24/7)
+- **B) DynamoDB** — not designed for full-text search across log files
+- **C) Redshift** — powerful for analytics but requires a running cluster — overkill for a few monthly queries
 
 </details>
 
@@ -618,16 +623,17 @@ ORDER BY month;
 
 > **Scenario**: BankSafe needs to transfer money between accounts. When $500 is moved from Account A to Account B: (1) Debit $500 from Account A, (2) Credit $500 to Account B. If step 1 succeeds but step 2 fails, **the money vanishes** — this is unacceptable. The system handles ~1,000 transactions/second.
 
-**Think about it:**
-- Do we need ACID transactions?
-- Is data integrity critical?
-- Can we afford partial failures?
-- Is the scale moderate?
+**Which AWS database service should BankSafe use?**
+
+- **A)** Amazon DynamoDB — NoSQL key-value store
+- **B)** Amazon RDS (MySQL/PostgreSQL) — managed relational database
+- **C)** Amazon Athena + S3 — serverless SQL on files
+- **D)** Amazon ElastiCache (Redis) — in-memory cache
 
 <details>
 <summary>Click to reveal the answer</summary>
 
-### Answer: Amazon RDS (MySQL/PostgreSQL)
+### ✅ Correct Answer: B) Amazon RDS (MySQL/PostgreSQL)
 
 **Why RDS?**
 - **ACID transactions** — debit and credit happen atomically (both or neither)
@@ -635,12 +641,10 @@ ORDER BY month;
 - **1,000 TPS** — well within RDS capabilities
 - **Data integrity** — constraints ensure balance can't go negative
 
-**Why NOT DynamoDB?**
-- DynamoDB transactions are limited to 25 items and lack the full ACID semantics of SQL databases
-- No built-in CHECK constraints (can't prevent negative balance at database level)
-
-**Why NOT Athena?**
-- Athena is read-only analytics — it can't INSERT, UPDATE, or run transactions
+**Why NOT the others?**
+- **A) DynamoDB** — transactions limited to 25 items, no built-in CHECK constraints to prevent negative balance
+- **C) Athena** — read-only analytics — can't INSERT, UPDATE, or run transactions
+- **D) ElastiCache** — in-memory only, data lost on restart — never use as primary store for financial data
 
 </details>
 
