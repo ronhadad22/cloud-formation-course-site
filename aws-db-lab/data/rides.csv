@@ -1,0 +1,31 @@
+ride_id,driver_name,passenger_name,pickup_location,dropoff_location,fare,distance_km,duration_min,payment_method,ride_date,rating
+1001,Sarah Cohen,David Levi,Tel Aviv Central,Herzliya,45.50,12.3,18,credit_card,2025-01-15,5
+1002,Yossi Ben,Rachel Green,Haifa Port,Technion,28.00,6.5,12,cash,2025-01-15,4
+1003,Moshe Dayan,Noa Kirel,Jerusalem Old City,Hebrew University,35.00,8.2,22,credit_card,2025-01-16,5
+1004,Sarah Cohen,Amit Goldberg,Tel Aviv Central,Ben Gurion Airport,89.00,22.1,35,credit_card,2025-01-16,4
+1005,Dan Amir,Tamar Braun,Ramat Gan,Tel Aviv Central,32.00,7.8,15,apple_pay,2025-01-17,3
+1006,Yossi Ben,David Levi,Haifa Port,Haifa Beach,18.50,3.2,8,cash,2025-01-17,5
+1007,Liat Segal,Rachel Green,Netanya,Herzliya,52.00,15.6,25,credit_card,2025-01-18,4
+1008,Sarah Cohen,Omer Adam,Tel Aviv Central,Jaffa,22.00,4.5,12,google_pay,2025-01-18,5
+1009,Moshe Dayan,Noa Kirel,Jerusalem Old City,Ein Karem,28.50,6.8,18,credit_card,2025-01-19,4
+1010,Dan Amir,Amit Goldberg,Ramat Gan,Petah Tikva,38.00,9.4,20,apple_pay,2025-01-19,3
+1011,Sarah Cohen,Tamar Braun,Tel Aviv Central,Ramat Aviv,25.00,5.1,14,credit_card,2025-01-20,5
+1012,Yossi Ben,David Levi,Haifa Port,Carmel Center,42.00,10.2,22,cash,2025-01-20,4
+1013,Liat Segal,Omer Adam,Netanya,Tel Aviv Central,65.00,18.3,30,credit_card,2025-01-21,4
+1014,Dan Amir,Rachel Green,Ramat Gan,Bnei Brak,15.00,2.8,8,google_pay,2025-01-21,5
+1015,Moshe Dayan,Amit Goldberg,Jerusalem Old City,Bethlehem Checkpoint,20.00,4.2,15,cash,2025-01-22,3
+1016,Sarah Cohen,Noa Kirel,Tel Aviv Central,Rishon LeZion,48.00,14.5,25,credit_card,2025-01-22,4
+1017,Yossi Ben,Tamar Braun,Haifa Port,Akko,55.00,16.8,28,credit_card,2025-01-23,5
+1018,Liat Segal,David Levi,Netanya,Kfar Saba,30.00,8.5,16,apple_pay,2025-01-23,4
+1019,Dan Amir,Omer Adam,Ramat Gan,Tel Aviv Beach,28.00,6.2,14,credit_card,2025-01-24,5
+1020,Sarah Cohen,Rachel Green,Tel Aviv Central,Holon,35.00,9.8,20,google_pay,2025-01-24,3
+1021,Moshe Dayan,Amit Goldberg,Jerusalem Old City,Malha Mall,22.50,5.5,16,cash,2025-01-25,4
+1022,Yossi Ben,Noa Kirel,Haifa Port,Nesher,33.00,7.9,18,credit_card,2025-01-25,5
+1023,Sarah Cohen,Tamar Braun,Tel Aviv Central,Bat Yam,28.00,6.4,15,credit_card,2025-01-26,4
+1024,Liat Segal,David Levi,Netanya,Hadera,40.00,11.2,22,apple_pay,2025-01-26,3
+1025,Dan Amir,Omer Adam,Ramat Gan,Givatayim,12.00,2.1,6,cash,2025-01-27,5
+1026,Sarah Cohen,Rachel Green,Tel Aviv Central,Herzliya,45.50,12.3,18,credit_card,2025-02-01,4
+1027,Moshe Dayan,Amit Goldberg,Jerusalem Old City,Mount Scopus,18.00,3.8,12,google_pay,2025-02-01,5
+1028,Yossi Ben,Noa Kirel,Haifa Port,Haifa University,25.00,5.5,14,cash,2025-02-02,4
+1029,Dan Amir,Tamar Braun,Ramat Gan,Diamond Exchange,15.50,2.5,8,credit_card,2025-02-02,5
+1030,Sarah Cohen,David Levi,Tel Aviv Central,Ben Gurion Airport,92.00,22.1,38,credit_card,2025-02-03,4
