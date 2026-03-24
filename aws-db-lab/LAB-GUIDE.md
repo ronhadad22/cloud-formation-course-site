@@ -105,48 +105,220 @@ Before starting the quiz, study this decision tree:
 
 ---
 
-### Mini-Lab 1: DynamoDB Hands-On
+### Mini-Lab 1: Build TechShop's Product Catalog with DynamoDB
 
-**Story**: You're the backend engineer at TechShop. Build the product catalog!
+---
 
-#### Step 1: Seed the products table
+#### The Story
 
-The CloudFormation already created the DynamoDB table. Let's add products:
+You just got hired as a backend engineer at **TechShop**, an online store. Black Friday is coming and the CEO is panicking:
+
+> *"Last year our website crashed during the sale. We had 5 million users and every product page took 10 seconds to load. Customers left. We lost millions. FIX THIS."*
+
+Your job: **build a product catalog that loads instantly, even with millions of users.**
+
+Here's what the TechShop website looks like:
+
+```
+ ┌─────────────────────────────────────────────────────────────┐
+ │  TechShop                    [Search]         [Cart (3)]    │
+ ├─────────────────────────────────────────────────────────────┤
+ │                                                             │
+ │  Categories:  [Electronics]  [Clothing]  [Books]  [All]     │
+ │                                                             │
+ │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+ │  │  [img]       │  │  [img]       │  │  [img]       │      │
+ │  │  Headphones  │  │  USB Charger │  │  4K Webcam   │      │
+ │  │  $79.99      │  │  $34.99      │  │  $129.99     │      │
+ │  │  ★★★★½       │  │  ★★★★★       │  │  ★★★★☆       │      │
+ │  │  In Stock:250│  │  In Stock:500│  │  In Stock:80 │      │
+ │  │  [Add to Cart│  │  [Add to Cart│  │  [Add to Cart│      │
+ │  └──────────────┘  └──────────────┘  └──────────────┘      │
+ │                                                             │
+ └─────────────────────────────────────────────────────────────┘
+```
+
+**Think about what the website needs from the database:**
+
+| User Action | What the database must do | Speed needed |
+|-------------|--------------------------|-------------|
+| Opens a product page | Get ONE product by its ID | **< 10ms** (instant!) |
+| Clicks "Electronics" | Get ALL products in a category | **< 50ms** (fast) |
+| Clicks "Add to Cart" | Decrease stock count by 1 | **< 10ms** (real-time) |
+| 5 million users at once | Handle all of the above simultaneously | **No slowdown** |
+
+**This is exactly what DynamoDB was built for!** Let's see it in action.
+
+---
+
+#### What is DynamoDB? (60-second crash course)
+
+Think of DynamoDB like a **giant spreadsheet** with superpowers:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Table: "products"                                                  │
+├──────────────┬──────────┬───────────────────────┬───────┬───────────┤
+│ product_id   │ category │ name                  │ price │ stock     │
+│ (Partition   │          │                       │       │           │
+│   Key)       │          │                       │       │           │
+├──────────────┼──────────┼───────────────────────┼───────┼───────────┤
+│ ELEC-001     │ electronics │ Wireless Headphones │ 79.99 │ 250      │
+│ ELEC-002     │ electronics │ USB-C Charger 65W   │ 34.99 │ 500      │
+│ CLOTH-001    │ clothing    │ Developer T-Shirt   │ 29.99 │ 1000     │
+│ BOOK-001     │ books       │ AWS SA Guide        │ 49.99 │ 150      │
+└──────────────┴──────────┴───────────────────────┴───────┴───────────┘
+```
+
+**Key concepts you need to know:**
+
+| Concept | What it means | Real-world analogy |
+|---------|--------------|-------------------|
+| **Table** | A collection of items (like a spreadsheet) | A filing cabinet |
+| **Item** | One row in the table | One file in the cabinet |
+| **Attribute** | A column value (name, price, etc.) | A field on the file |
+| **Partition Key** | The unique ID to find an item instantly | The label on the file tab |
+
+**The magic of the Partition Key**: When you ask DynamoDB "give me product ELEC-001", it knows *exactly* where that item is stored — no scanning, no searching. It's like looking up a word in a dictionary by going directly to the right page, instead of reading every page from the beginning.
+
+**Why is this faster than a regular database (RDS)?**
+
+| | Regular DB (RDS/MySQL) | DynamoDB |
+|---|---|---|
+| 100 users | Fast (5ms) | Fast (5ms) |
+| 10,000 users | Slower (50ms) | Still fast (5ms) |
+| 1,000,000 users | Very slow or crashes | Still fast (5ms) |
+| 5,000,000 users | Dead | Still fast (5ms) |
+
+DynamoDB **automatically spreads your data across many servers**. More users? More servers are added automatically. You never have to worry about scaling.
+
+---
+
+#### Step 1: Seed the Products Table
+
+The CloudFormation stack already created the DynamoDB table for you. Now let's add TechShop's products. Run this in your terminal:
 
 ```bash
 chmod +x aws-db-lab/scripts/seed-dynamodb.sh
 ./aws-db-lab/scripts/seed-dynamodb.sh aws-db-lab-products <YOUR-REGION>
 ```
 
-#### Step 2: Get a single product (the key-value lookup)
+You should see 10 products being added.
 
-This is what happens when a customer opens a product page:
+---
 
-```bash
-aws dynamodb get-item \
-  --table-name aws-db-lab-products \
-  --key '{"product_id": {"S": "ELEC-001"}}' \
-  --output table
+#### Step 2: Explore the Table in the Console
+
+1. Go to the **DynamoDB Console**: https://console.aws.amazon.com/dynamodb/
+2. In the left sidebar, click **Tables**
+3. Click on the table named **`aws-db-lab-products`**
+
+You'll see the table overview — notice:
+- **Table status**: Active
+- **Partition key**: `product_id (S)` — the "S" means String
+- **Billing mode**: On-demand — meaning you pay per request, not for a running server!
+
+4. Click the **"Explore table items"** button (orange button at the top)
+
+You should see all 10 products in a spreadsheet-like view. This is your TechShop catalog!
+
+---
+
+#### Step 3: Simulate "Customer Opens a Product Page"
+
+When a customer clicks on "Wireless Headphones" on the website, the app needs to fetch that ONE product instantly:
+
+```
+ ┌─────────────────────────────────────────────────┐
+ │  TechShop > Electronics > Wireless Headphones   │
+ ├─────────────────────────────────────────────────┤
+ │                                                 │
+ │  [product image]                                │
+ │                                                 │
+ │  Wireless Bluetooth Headphones                  │
+ │  Brand: SoundMax                                │
+ │  Price: $79.99                                  │
+ │  Rating: ★★★★½ (4.5/5)                         │
+ │  In Stock: 250                                  │
+ │                                                 │
+ │  [ Add to Cart ]    [ Buy Now ]                 │
+ │                                                 │
+ └─────────────────────────────────────────────────┘
 ```
 
-**Notice how fast that was!** DynamoDB returns in single-digit milliseconds regardless of table size.
+**Behind the scenes, the app asks DynamoDB:**
+> "Give me the item where `product_id` = `ELEC-001`"
 
-#### Step 3: Browse by category (using Global Secondary Index)
+**Try it yourself in the console:**
 
-Customer clicks "Electronics" category:
+1. On the **"Explore table items"** page, find the **"Query"** tab (not "Scan")
+2. For **Partition key**, enter: `ELEC-001`
+3. Click **"Run"**
 
-```bash
-aws dynamodb query \
-  --table-name aws-db-lab-products \
-  --index-name category-index \
-  --key-condition-expression "category = :cat" \
-  --expression-attribute-values '{":cat": {"S": "electronics"}}' \
-  --output table
+You'll see just ONE item returned — **instantly**. This is the power of the Partition Key: DynamoDB jumps directly to that item without searching through the whole table.
+
+> **Think about it**: If TechShop had 10 million products, this query would STILL return in the same time — under 10 milliseconds. That's because DynamoDB doesn't search — it uses the Partition Key like an address to go directly to the right item.
+
+---
+
+#### Step 4: Simulate "Customer Browses a Category"
+
+Now the customer clicks the **"Electronics"** category on the website:
+
+```
+ ┌─────────────────────────────────────────────────────────────┐
+ │  TechShop > Electronics                                     │
+ ├─────────────────────────────────────────────────────────────┤
+ │                                                             │
+ │  Showing 3 products in "Electronics"                        │
+ │                                                             │
+ │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+ │  │  Headphones  │  │  USB Charger │  │  4K Webcam   │      │
+ │  │  $79.99      │  │  $34.99      │  │  $129.99     │      │
+ │  └──────────────┘  └──────────────┘  └──────────────┘      │
+ │                                                             │
+ └─────────────────────────────────────────────────────────────┘
 ```
 
-#### Step 4: Update stock after purchase (atomic counter)
+**The problem**: Our Partition Key is `product_id`. We can only look up items by their product ID. But now we need to find all products where `category = "electronics"`.
 
-Customer buys 2 headphones — decrease stock atomically:
+**Without an index**, DynamoDB would have to **scan every single item** in the table to find electronics products. With 10 million products, that's slow and expensive!
+
+**The solution: Global Secondary Index (GSI)**
+
+A GSI is like **creating a second "lookup shortcut"** on a different column. Think of it like a book:
+- The **table** is organized by `product_id` (like a book organized by chapter number)
+- The **GSI on `category`** is like the **index at the back of the book** — it lets you find all pages about a specific topic
+
+Our CloudFormation template already created a GSI called `category-index` on the `category` attribute.
+
+**Try it yourself in the console:**
+
+1. Still on the **"Explore table items"** page
+2. In the dropdown that says **"Table: aws-db-lab-products"**, change it to **"Index: category-index"**
+3. For **Partition key**, enter: `electronics`
+4. Click **"Run"**
+
+You'll see only the 3 electronics products — fetched instantly! The GSI let DynamoDB jump directly to all items in that category.
+
+> **Key insight**: In a regular MySQL database, you'd add an INDEX too — same concept! The difference is DynamoDB handles the scaling automatically. With 5 million users all browsing categories at the same time, DynamoDB doesn't slow down.
+
+---
+
+#### Step 5: Simulate "Customer Adds to Cart" (Stock Update)
+
+A customer clicks **"Add to Cart"** on the Wireless Headphones. The app needs to decrease the stock count from 250 to 249. But wait — what if **100 customers click "Add to Cart" at the exact same moment?**
+
+```
+ Customer A clicks "Add to Cart" ──┐
+ Customer B clicks "Add to Cart" ──┤──→  stock was 250, should become 148
+ Customer C clicks "Add to Cart" ──┤     (not 249, 249, 249!)
+ ...102 more customers...        ──┘
+```
+
+DynamoDB handles this with **atomic updates** — each update is guaranteed to happen one at a time, so the count is always accurate.
+
+**Try it yourself — run this in your terminal:**
 
 ```bash
 aws dynamodb update-item \
@@ -155,25 +327,39 @@ aws dynamodb update-item \
   --update-expression "SET stock = stock - :qty" \
   --expression-attribute-values '{":qty": {"N": "2"}}' \
   --return-values UPDATED_NEW \
+  --region <YOUR-REGION> \
   --output table
 ```
 
-**This is atomic** — even with millions of concurrent purchases, the stock count stays accurate.
+Now go back to the console, query for `ELEC-001` again — the stock should now be **248** (was 250, decreased by 2).
 
-#### Step 5: Check it in the Console
+> **Why this matters**: In a regular database under heavy load, two users might both read "stock = 250" and both write "stock = 249" — losing one purchase. DynamoDB's atomic update prevents this.
 
-1. Go to **DynamoDB Console**: https://console.aws.amazon.com/dynamodb/
-2. Click **Tables** → `aws-db-lab-products`
-3. Click **Explore table items**
-4. See your products and verify ELEC-001 stock decreased by 2
+---
 
-#### Key Takeaway
+#### Step 6: See the Full Picture
 
-DynamoDB is perfect for TechShop because:
-- Lookup by `product_id` = single-digit millisecond response
-- GSI on `category` = fast category browsing
-- Atomic updates = safe concurrent stock management
-- On-demand billing = handles Black Friday spikes automatically
+Go back to **"Explore table items"** → **"Scan"** tab → click **"Run"** to see all items.
+
+You now understand every operation that powers the TechShop website:
+
+| Website Action | DynamoDB Operation | What you did |
+|---|---|---|
+| Open product page | **GetItem** by Partition Key | Queried by `product_id` |
+| Browse a category | **Query** on GSI | Queried `category-index` |
+| Add to cart | **UpdateItem** (atomic) | Decreased stock by 2 |
+
+#### Why DynamoDB and NOT a regular database?
+
+| Problem | MySQL (RDS) | DynamoDB |
+|---------|------------|----------|
+| 5 million users on Black Friday | Need to manually scale up, might crash | Automatically handles any load |
+| Get one product by ID | Fast, but slows under heavy load | Always < 10ms, regardless of load |
+| Browse by category | Needs INDEX too, but fixed server capacity | GSI with unlimited capacity |
+| Cost when no one is shopping (3 AM) | Still paying for the running server | $0 — pay only per request |
+| Stock update with 100 concurrent buyers | Need to write careful locking code | Built-in atomic updates |
+
+**Bottom line**: For simple lookups at massive scale with unpredictable traffic, **DynamoDB is the right tool**. The CEO can sleep peacefully on Black Friday night.
 
 ---
 
