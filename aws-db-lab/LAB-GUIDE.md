@@ -409,11 +409,118 @@ You now understand every operation that powers the TechShop website:
 
 ---
 
-### Mini-Lab 2: Athena + S3 Hands-On
+### Mini-Lab 2: Build CloudTaxi's Analytics Dashboard with Athena + S3
 
-**Story**: You're the data analyst at CloudTaxi. The CEO wants insights from ride data — NOW!
+---
 
-#### Step 1: Upload ride data to S3
+#### The Story
+
+You're the **data analyst** at **CloudTaxi**, a ride-sharing company operating across Israel. The CEO just walked into your office:
+
+> *"I have a board meeting in 2 hours. I need answers: How much revenue did we make? Who is our best driver? What's our busiest pickup location? I don't care how you get the data — just get me numbers. And don't ask IT to set up some expensive database server."*
+
+Here's the problem:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CloudTaxi Data Situation                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📁 S3 Bucket: "cloudtaxi-data"                                │
+│  │                                                              │
+│  ├── rides/                                                     │
+│  │   ├── rides-2023.csv    (500,000 rows)                      │
+│  │   ├── rides-2024.csv    (750,000 rows)                      │
+│  │   └── rides-2025.csv    (300,000 rows)    ← you are here    │
+│  │                                                              │
+│  └── Each CSV has: ride_id, driver, passenger, pickup,          │
+│      dropoff, fare, distance, duration, payment, date, rating   │
+│                                                                 │
+│  Total: 1.5 million rows of ride data sitting in S3             │
+│  The data is ALREADY THERE — nobody wants to move it            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The CEO wants this dashboard:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CloudTaxi Analytics Dashboard                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📊 Revenue Overview                                            │
+│  ┌───────────────┬──────────────┬──────────────┐               │
+│  │ Total Rides   │ Total Revenue│ Avg Fare     │               │
+│  │ 1,550,000     │ $52,450,000  │ $33.84       │               │
+│  └───────────────┴──────────────┴──────────────┘               │
+│                                                                 │
+│  🏆 Top Drivers          │  📍 Busiest Locations               │
+│  1. Sarah Cohen  $12,340 │  1. Tel Aviv Central  45,000 rides  │
+│  2. Yossi Ben    $10,250 │  2. Jerusalem Old City 28,000 rides │
+│  3. Dan Amir     $9,800  │  3. Haifa Port        22,000 rides  │
+│                                                                 │
+│  💳 Payment Methods                                             │
+│  credit_card: 65%  |  cash: 20%  |  apple_pay: 10%  |  5%     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Your options:**
+
+| Option | What it means | Cost | Setup time |
+|--------|-------------|------|-----------|
+| **Option A: RDS (MySQL)** | Spin up a database server, load all CSVs into it, then query | ~$50/month server running 24/7 | Hours (ETL) |
+| **Option B: DynamoDB** | Not designed for analytics (no GROUP BY, no AVG, no SUM) | N/A | ❌ Wrong tool |
+| **Option C: Athena + S3** | Query the CSV files directly in S3 with SQL. No server. | ~$0.005 per query | **5 minutes** |
+
+The CEO needs answers in 2 hours. **Athena + S3 is the only option that makes sense.**
+
+---
+
+#### What is Athena? (60-second crash course)
+
+Think of Athena as a **SQL engine that reads files directly from S3**:
+
+```
+┌──────────────┐         ┌──────────────────┐         ┌──────────┐
+│              │  SQL     │                  │  reads   │          │
+│  You write   │ ──────→ │  Amazon Athena   │ ──────→ │  S3      │
+│  SQL query   │         │  (serverless)    │         │  files   │
+│              │ ←────── │                  │ ←────── │  (CSV)   │
+│              │ results  │                  │  data    │          │
+└──────────────┘         └──────────────────┘         └──────────┘
+                          No server to manage!
+                          No data to load!
+                          Pay only when you query!
+```
+
+**Key concepts you need to know:**
+
+| Concept | What it means | Real-world analogy |
+|---------|--------------|-------------------|
+| **S3 (Simple Storage Service)** | Cloud file storage — like a giant hard drive in the cloud | Google Drive / Dropbox |
+| **Athena** | A SQL engine that reads files from S3 — no server needed | Google Sheets "query" function but for millions of rows |
+| **External Table** | A "pointer" that tells Athena: "the data is in this S3 folder, and the columns look like this" | Like opening a CSV in Excel — Excel doesn't copy the file, it reads it in place |
+| **Database (in Athena)** | Just a folder/grouping for your tables — not a running server | A folder on your desktop |
+
+**The magic of Athena**: You don't move the data anywhere. You don't start a server. You just point Athena at your S3 files and write SQL. When the query finishes, Athena shuts down. **Zero cost when not querying.**
+
+**How is this different from a regular database?**
+
+| | Regular DB (RDS/MySQL) | Athena + S3 |
+|---|---|---|
+| Where is the data? | Loaded INTO the database | Stays in S3 (no copying) |
+| Server running? | Yes, 24/7 (even at 3 AM) | No! Serverless — runs only during query |
+| Setup time | Hours (create DB, load data) | Minutes (point at S3 folder) |
+| Cost when idle | ~$30-100/month | $0 |
+| Cost per query | Included in server cost | $5 per TB scanned |
+| Best for | Frequent queries, real-time apps | Occasional analytics, log analysis |
+
+---
+
+#### Step 1: Upload the Ride Data to S3
+
+First, let's get your S3 bucket name and upload the data:
 
 ```bash
 DATA_BUCKET=$(aws cloudformation describe-stacks \
@@ -421,26 +528,98 @@ DATA_BUCKET=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`DataBucketName`].OutputValue' \
   --output text)
 
-aws s3 cp aws-db-lab/data/rides.csv s3://$DATA_BUCKET/rides/rides.csv
-
-echo "Data uploaded to: s3://$DATA_BUCKET/rides/"
+echo "Your data bucket is: $DATA_BUCKET"
 ```
 
-#### Step 2: Open Athena Console
+Now upload the CloudTaxi ride data:
 
-1. Go to **Athena Console**: https://console.aws.amazon.com/athena/
-2. If asked about workgroup, select `aws-db-lab-workgroup`
-3. You're now in the **Query Editor**
+```bash
+aws s3 cp aws-db-lab/data/rides.csv s3://$DATA_BUCKET/rides/rides.csv
+```
 
-#### Step 3: Create a database and table
+**Verify it's there:**
 
-Run this SQL in Athena's query editor:
+```bash
+aws s3 ls s3://$DATA_BUCKET/rides/
+```
+
+You should see `rides.csv` listed. The data is now in S3 — this is where Athena will read it from.
+
+> **In a real company**, this data would already be in S3 — generated by the app, dumped by a data pipeline, or exported from another system. That's the beauty of Athena: the data is already there, you just query it.
+
+---
+
+#### Step 2: Open the Athena Console
+
+1. Go to the **Athena Console**: https://console.aws.amazon.com/athena/
+2. You'll see the **Query Editor** — this is where you write SQL
+3. On the left sidebar, you'll see **"Database"** dropdown — leave it for now
+4. If asked to set up a workgroup, select **`aws-db-lab-workgroup`**
+
+The Query Editor looks like this:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Amazon Athena > Query Editor                                │
+├──────────────┬──────────────────────────────────────────────┤
+│              │                                              │
+│  Database:   │  -- Write your SQL here:                     │
+│  [default ▼] │  SELECT * FROM ...                           │
+│              │                                              │
+│  Tables:     │                                              │
+│  (none yet)  │                                              │
+│              │                                              │
+│              │  [ ▶ Run ]                                   │
+│              │                                              │
+│              │  Results:                                     │
+│              │  (run a query to see results)                 │
+│              │                                              │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+---
+
+#### Step 3: Create a Database (just a folder name)
+
+In Athena, a "database" is NOT a running server — it's just a **name to group your tables** under. Think of it like creating a folder.
+
+Type this in the Query Editor and click **"Run"**:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS cloudtaxi;
 ```
 
-Then create a table that points to the S3 data:
+You should see **"Query successful"**. Now select **`cloudtaxi`** from the Database dropdown on the left.
+
+---
+
+#### Step 4: Create an External Table (the pointer to S3)
+
+This is the key step. We're telling Athena:
+> "There's a CSV file in S3. Here's where it is and what the columns look like."
+
+**Important**: Athena does NOT copy the data. It just saves a "pointer" — like creating a shortcut to a file.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  What CREATE EXTERNAL TABLE does:                         │
+│                                                          │
+│  Athena Table "rides"                                    │
+│      │                                                   │
+│      │  "Hey Athena, when someone queries 'rides'..."    │
+│      │                                                   │
+│      ▼                                                   │
+│  S3: s3://your-bucket/rides/rides.csv                    │
+│      │                                                   │
+│      │  "...read from THIS S3 location"                  │
+│      │  "...columns are: ride_id, driver_name, fare..."  │
+│      │  "...format is CSV, skip the header row"          │
+│                                                          │
+│  The data STAYS in S3. Nothing is copied or moved.       │
+└──────────────────────────────────────────────────────────┘
+```
+
+Run this SQL in the Query Editor (replace `<DATA_BUCKET>` with your actual bucket name from Step 1):
 
 ```sql
 CREATE EXTERNAL TABLE cloudtaxi.rides (
@@ -463,11 +642,28 @@ LOCATION 's3://<DATA_BUCKET>/rides/'
 TBLPROPERTIES ('skip.header.line.count'='1');
 ```
 
-> **Replace `<DATA_BUCKET>`** with your actual bucket name from Step 1!
+> **Replace `<DATA_BUCKET>`** with your actual bucket name! (e.g., `aws-db-lab-data-050752632489`)
 
-#### Step 4: Run analytics queries
+After running, you should see **`rides`** appear in the Tables list on the left sidebar.
 
-**CEO asks: "What's our total revenue?"**
+**Let's verify it works** — run a quick query:
+
+```sql
+SELECT * FROM cloudtaxi.rides LIMIT 5;
+```
+
+You should see 5 rows of ride data. Athena read the CSV directly from S3!
+
+---
+
+#### Step 5: Answer the CEO's Questions (Run Analytics!)
+
+Now the fun part. The CEO needs numbers for the board meeting. Let's get them.
+
+---
+
+**CEO Question 1: "What's our total revenue?"**
+
 ```sql
 SELECT 
   COUNT(*) as total_rides,
@@ -477,7 +673,18 @@ SELECT
 FROM cloudtaxi.rides;
 ```
 
-**CEO asks: "Who is our best driver?"**
+After running, look at the result:
+
+| total_rides | total_revenue | avg_fare | avg_distance |
+|-------------|--------------|----------|-------------|
+| 30 | 1085.50 | 36.18 | 9.0 |
+
+> **Think about what just happened**: Athena read a CSV file from S3, processed all rows, and gave you SQL analytics — without ANY database server. If this were 100 million rows, the query would still work. It would just scan more data (and cost a few dollars more).
+
+---
+
+**CEO Question 2: "Who is our best driver?"**
+
 ```sql
 SELECT 
   driver_name,
@@ -489,7 +696,12 @@ GROUP BY driver_name
 ORDER BY total_revenue DESC;
 ```
 
-**CEO asks: "What's the busiest pickup location?"**
+> **Notice the `GROUP BY` and `ORDER BY`** — these are standard SQL operations. If you know SQL, you already know Athena. Try doing GROUP BY in DynamoDB — you can't! That's why DynamoDB is wrong for analytics.
+
+---
+
+**CEO Question 3: "What's the busiest pickup location?"**
+
 ```sql
 SELECT 
   pickup_location,
@@ -501,7 +713,10 @@ ORDER BY ride_count DESC
 LIMIT 5;
 ```
 
-**CEO asks: "How do customers pay?"**
+---
+
+**CEO Question 4: "How do customers pay?"**
+
 ```sql
 SELECT 
   payment_method,
@@ -512,20 +727,82 @@ GROUP BY payment_method
 ORDER BY total_revenue DESC;
 ```
 
-#### Step 5: Check query cost
+---
 
-After each query, Athena shows **"Data scanned"** at the bottom. Notice:
-- Our CSV is tiny (~2KB), so each query costs **fractions of a cent**
-- Athena charges **$5 per TB scanned**
-- In production, use **Parquet format** (columnar) to reduce data scanned by 90%+
+#### Step 6: Check How Much This Cost You
 
-#### Key Takeaway
+After each query, look at the bottom of the Athena results — you'll see **"Data scanned"**.
 
-Athena is perfect for CloudTaxi because:
-- Data stays in S3 — no ETL or data loading needed
-- Standard SQL — analysts are immediately productive
-- Serverless — zero infrastructure to manage
-- Pay per query — a few cents per month for occasional analytics
+```
+┌─────────────────────────────────────────────────────────┐
+│  Query results                                           │
+│                                                         │
+│  (your results here)                                    │
+│                                                         │
+│  ─────────────────────────────────────────────────────  │
+│  Run time: 1.2 seconds  |  Data scanned: 2.15 KB       │
+│                                 ▲                       │
+│                                 │                       │
+│                    This is what you pay for!             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Athena pricing: $5 per TB scanned**
+
+| Data scanned | Cost |
+|-------------|------|
+| 2.15 KB (our demo) | **$0.00001** (basically free) |
+| 1 GB (medium dataset) | **$0.005** (half a cent) |
+| 100 GB (large company) | **$0.50** |
+| 1 TB (enterprise) | **$5.00** |
+
+**Compare this to running a MySQL database 24/7:**
+
+| | Athena (query 2x/month) | RDS MySQL (running 24/7) |
+|---|---|---|
+| Monthly cost | **~$0.01** | **~$50-100** |
+| Setup | 5 minutes | Hours (install, configure, load data) |
+| Maintenance | None | Patches, backups, scaling |
+| When idle | $0 | Still paying $50-100 |
+
+> **Pro tip**: In production, convert CSV files to **Parquet format** (a columnar format). Parquet files are compressed and Athena only reads the columns you need — reducing data scanned by **90%+** and making queries faster!
+
+---
+
+#### Step 7: Understand What You Just Built
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   CloudTaxi App ──writes──→  S3 Bucket (CSV files)         │
+│   (generates rides)          │                              │
+│                              │  Data just sits here         │
+│                              │  Costs: $0.023 per GB/month  │
+│                              │                              │
+│                              ▼                              │
+│   You (analyst) ──SQL──→  Athena  ──reads──→  S3            │
+│                          (serverless)                       │
+│                          Runs ONLY during your query        │
+│                          Then shuts down → $0               │
+│                                                             │
+│   No server. No loading. No maintenance. Just SQL.          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+You answered 4 CEO questions in minutes, for fractions of a cent.
+
+#### Why Athena + S3 and NOT a regular database?
+
+| Problem | MySQL (RDS) | Athena + S3 |
+|---------|------------|-------------|
+| Data is already in S3 | Must COPY it into the database (ETL) | Reads it directly — no copying |
+| CEO needs answers in 2 hours | Hours to set up DB + load data | 5 minutes to create table + query |
+| Query only 2x per month | Server runs 24/7 = $50-100/month wasted | Pay only for queries = pennies |
+| Data grows from 1GB to 1TB | Need to scale up the DB ($$$) | Athena handles any size automatically |
+| Team knows SQL | ✅ Works | ✅ Works (same SQL!) |
+
+**Bottom line**: When your data is already in S3 and you need occasional analytics, **Athena is the obvious choice**. No servers, no setup, no waste. The CEO got the numbers, and IT didn't have to lift a finger.
 
 ---
 
