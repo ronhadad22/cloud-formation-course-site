@@ -109,6 +109,21 @@ Before starting the quiz, study this decision tree:
 
 ---
 
+#### Interactive Demo — Open This First!
+
+Before starting, open the **TechShop Interactive Demo** in your browser:
+
+📁 Open the file: `aws-db-lab/web/techshop-demo.html`
+
+This is a visual simulation of the TechShop website. The left side shows the store UI, and the **right panel shows exactly what DynamoDB does** behind the scenes when you:
+- **Click a product** → see the GetItem operation
+- **Click a category** → see the Query on GSI operation
+- **Click "Add to Cart"** → see the atomic UpdateItem operation
+
+Play with the demo first, then continue below to do it for real in the AWS Console.
+
+---
+
 #### The Story
 
 You just got hired as a backend engineer at **TechShop**, an online store. Black Friday is coming and the CEO is panicking:
@@ -215,7 +230,7 @@ You should see 10 products being added.
 
 You'll see the table overview — notice:
 - **Table status**: Active
-- **Partition key**: `product_id (S)` — the "S" means String
+- **Partition key**: `product_id (String)`
 - **Billing mode**: On-demand — meaning you pay per request, not for a running server!
 
 4. Click the **"Explore table items"** button (orange button at the top)

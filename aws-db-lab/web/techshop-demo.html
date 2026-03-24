@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechShop - DynamoDB Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f0f2f5; color: #1a1a2e; }
+
+        /* Header */
+        .header { background: linear-gradient(135deg, #232f3e 0%, #37475a 100%); color: white; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        .header h1 { font-size: 24px; font-weight: 700; }
+        .header h1 span { color: #ff9900; }
+        .cart-badge { background: #ff9900; color: #232f3e; padding: 6px 16px; border-radius: 20px; font-weight: 700; font-size: 14px; }
+
+        /* Layout */
+        .main-layout { display: flex; min-height: calc(100vh - 60px); }
+        .store-panel { flex: 1; padding: 24px; max-width: 65%; }
+        .dynamo-panel { width: 35%; background: #1a1a2e; color: #e0e0e0; padding: 0; border-left: 3px solid #ff9900; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+
+        /* DynamoDB Panel */
+        .dynamo-header { background: #232f3e; padding: 16px 20px; border-bottom: 2px solid #ff9900; display: flex; align-items: center; gap: 10px; }
+        .dynamo-header h2 { font-size: 16px; color: #ff9900; }
+        .dynamo-icon { font-size: 24px; }
+        .dynamo-content { padding: 20px; }
+        .dynamo-content.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; text-align: center; color: #666; }
+        .dynamo-content.empty .hint { font-size: 14px; color: #888; margin-top: 12px; line-height: 1.6; }
+
+        .operation-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 12px; }
+        .op-getitem { background: #0ea5e9; color: white; }
+        .op-query { background: #8b5cf6; color: white; }
+        .op-update { background: #f59e0b; color: #1a1a2e; }
+        .op-scan { background: #ef4444; color: white; }
+
+        .dynamo-step { margin-bottom: 20px; }
+        .dynamo-step h3 { font-size: 14px; color: #ff9900; margin-bottom: 8px; }
+        .dynamo-step p { font-size: 13px; line-height: 1.6; color: #ccc; }
+        .dynamo-step .highlight { color: #ff9900; font-weight: 600; }
+
+        .code-block { background: #0d1117; border: 1px solid #333; border-radius: 8px; padding: 14px; margin: 10px 0; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; color: #e6edf3; }
+        .code-block .keyword { color: #ff7b72; }
+        .code-block .string { color: #a5d6ff; }
+        .code-block .number { color: #79c0ff; }
+        .code-block .comment { color: #8b949e; }
+        .code-block .key { color: #ffa657; }
+
+        .response-block { background: #0a2e0a; border: 1px solid #2d5a2d; border-radius: 8px; padding: 14px; margin: 10px 0; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.6; color: #7ee787; }
+
+        .latency-bar { display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 10px 14px; background: #0d1117; border-radius: 8px; }
+        .latency-fill { height: 8px; border-radius: 4px; transition: width 0.5s ease; }
+        .latency-fast { background: linear-gradient(90deg, #22c55e, #4ade80); width: 15%; }
+        .latency-slow { background: linear-gradient(90deg, #ef4444, #f87171); width: 85%; }
+        .latency-label { font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .latency-label.fast { color: #4ade80; }
+        .latency-label.slow { color: #f87171; }
+
+        .comparison-box { background: #1e293b; border-radius: 8px; padding: 14px; margin: 12px 0; border: 1px solid #334155; }
+        .comparison-box h4 { font-size: 13px; margin-bottom: 8px; color: #94a3b8; }
+        .comparison-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #334155; }
+        .comparison-row:last-child { border-bottom: none; }
+        .comparison-row .label { color: #94a3b8; }
+        .comparison-row .dynamo-val { color: #4ade80; font-weight: 600; }
+        .comparison-row .rds-val { color: #f87171; font-weight: 600; }
+
+        /* Categories */
+        .categories { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }
+        .cat-btn { padding: 8px 20px; border-radius: 20px; border: 2px solid #ddd; background: white; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        .cat-btn:hover { border-color: #ff9900; color: #ff9900; }
+        .cat-btn.active { background: #ff9900; color: white; border-color: #ff9900; }
+
+        /* Product Grid */
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+        .product-card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.2s; cursor: pointer; border: 2px solid transparent; }
+        .product-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); border-color: #ff9900; }
+        .product-card.selected { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.2); }
+        .product-img { height: 140px; display: flex; align-items: center; justify-content: center; font-size: 56px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); }
+        .product-info { padding: 16px; }
+        .product-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .product-brand { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .product-price { font-size: 20px; font-weight: 700; color: #232f3e; }
+        .product-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+        .product-rating { font-size: 13px; color: #ff9900; }
+        .product-stock { font-size: 12px; color: #22c55e; font-weight: 500; }
+        .product-stock.low { color: #ef4444; }
+        .product-id { font-size: 11px; color: #999; font-family: monospace; margin-bottom: 4px; }
+
+        .add-to-cart-btn { width: 100%; padding: 10px; margin-top: 12px; background: #ff9900; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .add-to-cart-btn:hover { background: #e68a00; }
+        .add-to-cart-btn:active { transform: scale(0.97); }
+        .add-to-cart-btn.added { background: #22c55e; }
+
+        /* Animations */
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-in { animation: slideIn 0.3s ease-out; }
+        .pulse { animation: pulse 0.6s ease-in-out; }
+
+        /* Product detail overlay */
+        .product-detail-overlay { display: none; position: fixed; top: 0; left: 0; width: 65%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
+        .product-detail-overlay.show { display: flex; align-items: center; justify-content: center; }
+        .product-detail { background: white; border-radius: 16px; padding: 32px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); animation: slideIn 0.3s ease-out; }
+        .product-detail .close-btn { float: right; background: none; border: none; font-size: 24px; cursor: pointer; color: #666; }
+        .product-detail h2 { font-size: 22px; margin-bottom: 8px; }
+        .product-detail .detail-price { font-size: 28px; font-weight: 700; color: #232f3e; margin: 12px 0; }
+        .product-detail .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+
+        /* Info banner */
+        .info-banner { background: linear-gradient(135deg, #232f3e, #37475a); color: white; padding: 20px 24px; border-radius: 12px; margin-bottom: 24px; }
+        .info-banner h2 { font-size: 18px; margin-bottom: 8px; color: #ff9900; }
+        .info-banner p { font-size: 14px; line-height: 1.6; color: #ccc; }
+        .info-banner .action-hint { display: inline-block; background: #ff9900; color: #232f3e; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; margin-top: 8px; }
+
+        /* Step indicator */
+        .step-indicator { display: flex; gap: 8px; margin-bottom: 16px; }
+        .step-dot { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; border: 2px solid #444; color: #666; background: transparent; transition: all 0.3s; }
+        .step-dot.active { border-color: #ff9900; color: #ff9900; background: rgba(255,153,0,0.1); }
+        .step-dot.done { border-color: #22c55e; color: white; background: #22c55e; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Tech<span>Shop</span></h1>
+    <div style="display:flex; align-items:center; gap:16px;">
+        <span style="font-size:13px; opacity:0.7;">DynamoDB Interactive Demo</span>
+        <div class="cart-badge" id="cartBadge">🛒 Cart (0)</div>
+    </div>
+</div>
+
+<div class="main-layout">
+    <!-- Store Panel (Left) -->
+    <div class="store-panel">
+        <div class="info-banner">
+            <h2>Welcome to TechShop!</h2>
+            <p>This is an interactive demo. Use the store like a real customer — click products, browse categories, add to cart. The right panel shows you <strong style="color:#ff9900">exactly what DynamoDB does</strong> behind the scenes for each action.</p>
+            <div style="margin-top: 12px;">
+                <span class="action-hint">👆 Try clicking a product card</span>
+                <span class="action-hint" style="margin-left:8px;">🏷️ Try filtering by category</span>
+                <span class="action-hint" style="margin-left:8px;">🛒 Try adding to cart</span>
+            </div>
+        </div>
+
+        <div class="categories">
+            <button class="cat-btn active" onclick="filterCategory('all')">All Products</button>
+            <button class="cat-btn" onclick="filterCategory('electronics')">⚡ Electronics</button>
+            <button class="cat-btn" onclick="filterCategory('clothing')">👕 Clothing</button>
+            <button class="cat-btn" onclick="filterCategory('books')">📚 Books</button>
+            <button class="cat-btn" onclick="filterCategory('accessories')">⌨️ Accessories</button>
+        </div>
+
+        <div class="product-grid" id="productGrid"></div>
+    </div>
+
+    <!-- DynamoDB Panel (Right) -->
+    <div class="dynamo-panel">
+        <div class="dynamo-header">
+            <span class="dynamo-icon">⚡</span>
+            <h2>DynamoDB — Behind the Scenes</h2>
+        </div>
+        <div class="dynamo-content" id="dynamoContent">
+            <div class="dynamo-content empty">
+                <div style="font-size:48px; margin-bottom:16px;">🔍</div>
+                <div style="font-size:16px; font-weight:600; color:#ff9900;">Waiting for your action...</div>
+                <div class="hint">
+                    Click a <strong>product card</strong> to see GetItem<br>
+                    Click a <strong>category</strong> to see Query on GSI<br>
+                    Click <strong>Add to Cart</strong> to see UpdateItem
+                </div>
+                <div style="margin-top: 24px;">
+                    <div class="step-indicator" style="justify-content: center;">
+                        <div class="step-dot" id="step1">1</div>
+                        <div class="step-dot" id="step2">2</div>
+                        <div class="step-dot" id="step3">3</div>
+                    </div>
+                    <div style="font-size: 11px; color: #666; margin-top: 8px;">
+                        Complete all 3 operations to see the full picture
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Product Detail Overlay -->
+<div class="product-detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
+    <div class="product-detail" id="detailContent" onclick="event.stopPropagation()">
+    </div>
+</div>
+
+<script>
+const products = [
+    { id: "ELEC-001", category: "electronics", name: "Wireless Bluetooth Headphones", price: 79.99, stock: 250, brand: "SoundMax", rating: 4.5, emoji: "🎧" },
+    { id: "ELEC-002", category: "electronics", name: "USB-C Fast Charger 65W", price: 34.99, stock: 500, brand: "PowerUp", rating: 4.8, emoji: "🔌" },
+    { id: "ELEC-003", category: "electronics", name: "4K Webcam Pro", price: 129.99, stock: 80, brand: "VisionTech", rating: 4.3, emoji: "📷" },
+    { id: "CLOTH-001", category: "clothing", name: "Cloud Developer T-Shirt", price: 29.99, stock: 1000, brand: "DevWear", rating: 4.7, emoji: "👕" },
+    { id: "CLOTH-002", category: "clothing", name: "AWS Hoodie", price: 59.99, stock: 300, brand: "CloudGear", rating: 4.9, emoji: "🧥" },
+    { id: "CLOTH-003", category: "clothing", name: "Terraform Socks (3-pack)", price: 14.99, stock: 2000, brand: "DevWear", rating: 4.2, emoji: "🧦" },
+    { id: "BOOK-001", category: "books", name: "AWS Solutions Architect Guide", price: 49.99, stock: 150, brand: "TechPress", rating: 4.6, emoji: "📘" },
+    { id: "BOOK-002", category: "books", name: "Docker & Kubernetes Handbook", price: 39.99, stock: 200, brand: "TechPress", rating: 4.4, emoji: "📗" },
+    { id: "ACC-001", category: "accessories", name: "Mechanical Keyboard RGB", price: 89.99, stock: 120, brand: "KeyMaster", rating: 4.7, emoji: "⌨️" },
+    { id: "ACC-002", category: "accessories", name: "Ergonomic Mouse Pad XL", price: 24.99, stock: 800, brand: "ComfortZone", rating: 4.1, emoji: "🖱️" },
+];
+
+let cartCount = 0;
+let currentCategory = 'all';
+let completedSteps = new Set();
+
+function renderStars(rating) {
+    const full = Math.floor(rating);
+    const half = rating % 1 >= 0.5 ? '½' : '';
+    return '★'.repeat(full) + half + '☆'.repeat(5 - full - (half ? 1 : 0));
+}
+
+function renderProducts(filter = 'all') {
+    const grid = document.getElementById('productGrid');
+    const filtered = filter === 'all' ? products : products.filter(p => p.category === filter);
+    grid.innerHTML = filtered.map(p => `
+        <div class="product-card" id="card-${p.id}" onclick="viewProduct('${p.id}')">
+            <div class="product-img">${p.emoji}</div>
+            <div class="product-info">
+                <div class="product-id">${p.id}</div>
+                <div class="product-name">${p.name}</div>
+                <div class="product-brand">${p.brand}</div>
+                <div class="product-price">$${p.price.toFixed(2)}</div>
+                <div class="product-meta">
+                    <span class="product-rating">${renderStars(p.rating)} ${p.rating}</span>
+                    <span class="product-stock ${p.stock < 100 ? 'low' : ''}">${p.stock} in stock</span>
+                </div>
+                <button class="add-to-cart-btn" onclick="event.stopPropagation(); addToCart('${p.id}', this)">
+                    🛒 Add to Cart
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterCategory(category) {
+    currentCategory = category;
+    document.querySelectorAll('.cat-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    renderProducts(category);
+
+    completedSteps.add(2);
+    updateStepDots();
+
+    if (category === 'all') {
+        showScanOperation();
+    } else {
+        showQueryGSIOperation(category);
+    }
+}
+
+function viewProduct(id) {
+    const product = products.find(p => p.id === id);
+    document.querySelectorAll('.product-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById(`card-${id}`).classList.add('selected');
+
+    completedSteps.add(1);
+    updateStepDots();
+
+    // Show detail overlay
+    const detail = document.getElementById('detailContent');
+    detail.innerHTML = `
+        <button class="close-btn" onclick="closeDetail()">&times;</button>
+        <div style="text-align:center; font-size:64px; margin-bottom:16px;">${product.emoji}</div>
+        <h2>${product.name}</h2>
+        <div class="detail-price">$${product.price.toFixed(2)}</div>
+        <div class="detail-row"><span>Brand</span><strong>${product.brand}</strong></div>
+        <div class="detail-row"><span>Category</span><strong>${product.category}</strong></div>
+        <div class="detail-row"><span>Rating</span><strong>${renderStars(product.rating)} ${product.rating}/5</strong></div>
+        <div class="detail-row"><span>Stock</span><strong style="color:${product.stock < 100 ? '#ef4444' : '#22c55e'}">${product.stock} units</strong></div>
+        <div class="detail-row"><span>Product ID</span><strong style="font-family:monospace; color:#0ea5e9;">${product.id}</strong></div>
+        <button class="add-to-cart-btn" style="margin-top:20px;" onclick="addToCart('${product.id}', this); closeDetail();">🛒 Add to Cart</button>
+    `;
+    document.getElementById('detailOverlay').classList.add('show');
+
+    showGetItemOperation(product);
+}
+
+function closeDetail(e) {
+    if (e && e.target !== document.getElementById('detailOverlay')) return;
+    document.getElementById('detailOverlay').classList.remove('show');
+}
+
+function addToCart(id, btn) {
+    const product = products.find(p => p.id === id);
+    product.stock -= 1;
+    cartCount += 1;
+    document.getElementById('cartBadge').textContent = `🛒 Cart (${cartCount})`;
+    document.getElementById('cartBadge').classList.add('pulse');
+    setTimeout(() => document.getElementById('cartBadge').classList.remove('pulse'), 600);
+
+    if (btn) {
+        btn.textContent = '✓ Added!';
+        btn.classList.add('added');
+        setTimeout(() => {
+            btn.textContent = '🛒 Add to Cart';
+            btn.classList.remove('added');
+        }, 1200);
+    }
+
+    renderProducts(currentCategory);
+
+    completedSteps.add(3);
+    updateStepDots();
+
+    showUpdateItemOperation(product);
+}
+
+function updateStepDots() {
+    [1, 2, 3].forEach(i => {
+        const dot = document.getElementById(`step${i}`);
+        if (dot) {
+            if (completedSteps.has(i)) {
+                dot.classList.add('done');
+                dot.classList.remove('active');
+            }
+        }
+    });
+}
+
+function showGetItemOperation(product) {
+    const panel = document.getElementById('dynamoContent');
+    panel.innerHTML = `
+        <div class="animate-in" style="padding: 20px;">
+            <span class="operation-badge op-getitem">GET ITEM</span>
+            <h3 style="font-size:16px; margin-bottom:4px; color:white;">Customer opened a product page</h3>
+            <p style="font-size:13px; color:#999; margin-bottom:16px;">The app fetches ONE item by its Partition Key</p>
+
+            <div class="dynamo-step">
+                <h3>1. The app sends this request:</h3>
+                <div class="code-block">
+<span class="comment">// DynamoDB GetItem operation</span>
+{
+  <span class="key">"TableName"</span>: <span class="string">"products"</span>,
+  <span class="key">"Key"</span>: {
+    <span class="key">"product_id"</span>: <span class="string">"${product.id}"</span>
+  }
+}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>2. DynamoDB returns instantly:</h3>
+                <div class="response-block">
+{
+  "product_id": "${product.id}",
+  "name": "${product.name}",
+  "price": ${product.price},
+  "stock": ${product.stock},
+  "brand": "${product.brand}",
+  "category": "${product.category}",
+  "rating": ${product.rating}
+}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>3. Response time:</h3>
+                <div class="latency-bar">
+                    <span class="latency-label fast">DynamoDB: ~3ms</span>
+                    <div style="flex:1; background:#222; border-radius:4px; height:8px; overflow:hidden;">
+                        <div class="latency-fill latency-fast"></div>
+                    </div>
+                </div>
+                <div class="latency-bar">
+                    <span class="latency-label slow">MySQL (5M users): ~800ms</span>
+                    <div style="flex:1; background:#222; border-radius:4px; height:8px; overflow:hidden;">
+                        <div class="latency-fill latency-slow"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>4. How it works:</h3>
+                <p>DynamoDB uses the <span class="highlight">Partition Key</span> (product_id = "${product.id}") as a direct address. It goes <strong>straight to the item</strong> — no scanning, no searching. Like looking up a phone number when you already know the name.</p>
+                <div class="comparison-box">
+                    <h4>DynamoDB vs MySQL for this operation:</h4>
+                    <div class="comparison-row"><span class="label">Operation</span><span class="dynamo-val">GetItem (direct lookup)</span></div>
+                    <div class="comparison-row"><span class="label">MySQL equivalent</span><span class="rds-val">SELECT * WHERE id = '${product.id}'</span></div>
+                    <div class="comparison-row"><span class="label">Time (10 users)</span><span>Both ~3ms</span></div>
+                    <div class="comparison-row"><span class="label">Time (5M users)</span><span><span class="dynamo-val">Still 3ms</span> vs <span class="rds-val">800ms+</span></span></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showQueryGSIOperation(category) {
+    const filtered = products.filter(p => p.category === category);
+    const panel = document.getElementById('dynamoContent');
+    panel.innerHTML = `
+        <div class="animate-in" style="padding: 20px;">
+            <span class="operation-badge op-query">QUERY (GSI)</span>
+            <h3 style="font-size:16px; margin-bottom:4px; color:white;">Customer browsed "${category}" category</h3>
+            <p style="font-size:13px; color:#999; margin-bottom:16px;">The app queries the Global Secondary Index on <code>category</code></p>
+
+            <div class="dynamo-step">
+                <h3>1. The problem:</h3>
+                <p>The table's Partition Key is <span class="highlight">product_id</span>. We can only look up items by ID. But the customer wants all products where <span class="highlight">category = "${category}"</span>.</p>
+                <p style="margin-top:8px;">Without an index, DynamoDB would <strong style="color:#ef4444;">scan every single item</strong> in the table — slow and expensive!</p>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>2. The solution — Global Secondary Index (GSI):</h3>
+                <p>A GSI is like a <span class="highlight">second lookup shortcut</span> on a different column. Think of it as the <strong>index at the back of a book</strong>.</p>
+                <div class="code-block">
+<span class="comment">// Our table has a GSI called "category-index"</span>
+<span class="comment">// It lets us query by category instead of product_id</span>
+
+<span class="comment">// Table:          product_id → item (fast lookup by ID)</span>
+<span class="comment">// GSI:            category   → items (fast lookup by category)</span>
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>3. The app sends this request:</h3>
+                <div class="code-block">
+{
+  <span class="key">"TableName"</span>: <span class="string">"products"</span>,
+  <span class="key">"IndexName"</span>: <span class="string">"category-index"</span>,
+  <span class="key">"KeyConditionExpression"</span>:
+    <span class="string">"category = :cat"</span>,
+  <span class="key">"ExpressionAttributeValues"</span>: {
+    <span class="string">":cat"</span>: <span class="string">"${category}"</span>
+  }
+}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>4. DynamoDB returns ${filtered.length} items:</h3>
+                <div class="response-block">
+// Found ${filtered.length} products in "${category}"
+${filtered.map(p => `{ id: "${p.id}", name: "${p.name}", price: $${p.price} }`).join('\n')}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>5. Key insight:</h3>
+                <div class="comparison-box">
+                    <h4>Without GSI vs With GSI:</h4>
+                    <div class="comparison-row"><span class="label">Without GSI (Scan)</span><span class="rds-val">Reads ALL items → slow, expensive</span></div>
+                    <div class="comparison-row"><span class="label">With GSI (Query)</span><span class="dynamo-val">Jumps to "${category}" → fast, cheap</span></div>
+                    <div class="comparison-row"><span class="label">MySQL equivalent</span><span>SELECT * WHERE category = '${category}' (with INDEX)</span></div>
+                    <div class="comparison-row"><span class="label">Same concept!</span><span class="dynamo-val">Both DBs use indexes for fast lookups</span></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showScanOperation() {
+    const panel = document.getElementById('dynamoContent');
+    panel.innerHTML = `
+        <div class="animate-in" style="padding: 20px;">
+            <span class="operation-badge op-scan">SCAN</span>
+            <h3 style="font-size:16px; margin-bottom:4px; color:white;">Showing all products</h3>
+            <p style="font-size:13px; color:#999; margin-bottom:16px;">A Scan reads every item in the table — use with caution!</p>
+
+            <div class="dynamo-step">
+                <h3>1. The app sends this request:</h3>
+                <div class="code-block">
+{
+  <span class="key">"TableName"</span>: <span class="string">"products"</span>,
+  <span class="comment">// No key specified = read EVERYTHING</span>
+}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>2. Why Scan is dangerous:</h3>
+                <div class="comparison-box">
+                    <h4>⚠️ Scan vs Query:</h4>
+                    <div class="comparison-row"><span class="label">Scan</span><span class="rds-val">Reads ALL items, then filters</span></div>
+                    <div class="comparison-row"><span class="label">Query</span><span class="dynamo-val">Jumps directly to matching items</span></div>
+                    <div class="comparison-row"><span class="label">10 items (our demo)</span><span>Both are fast</span></div>
+                    <div class="comparison-row"><span class="label">10 million items</span><span><span class="rds-val">Scan: minutes</span> vs <span class="dynamo-val">Query: ms</span></span></div>
+                    <div class="comparison-row"><span class="label">Cost (10M items)</span><span><span class="rds-val">Scan: $$$</span> vs <span class="dynamo-val">Query: ¢</span></span></div>
+                </div>
+                <p style="margin-top:12px;">In production, <strong style="color:#ef4444;">avoid Scan</strong> whenever possible. Always use Query with a key or GSI.</p>
+            </div>
+        </div>
+    `;
+}
+
+function showUpdateItemOperation(product) {
+    const panel = document.getElementById('dynamoContent');
+    panel.innerHTML = `
+        <div class="animate-in" style="padding: 20px;">
+            <span class="operation-badge op-update">UPDATE ITEM (Atomic)</span>
+            <h3 style="font-size:16px; margin-bottom:4px; color:white;">Customer added "${product.name}" to cart</h3>
+            <p style="font-size:13px; color:#999; margin-bottom:16px;">Stock decreased by 1 — atomically and safely</p>
+
+            <div class="dynamo-step">
+                <h3>1. The problem: Concurrent purchases</h3>
+                <p>What if <span class="highlight">100 customers</span> click "Add to Cart" at the same moment?</p>
+                <div class="code-block">
+<span class="comment">// ❌ BAD approach (normal read-then-write):</span>
+stock = <span class="keyword">read</span>(<span class="string">"${product.id}"</span>).stock   <span class="comment">// → ${product.stock + 1}</span>
+stock = stock - 1                  <span class="comment">// → ${product.stock}</span>
+<span class="keyword">write</span>(<span class="string">"${product.id}"</span>, stock)      <span class="comment">// → ${product.stock}</span>
+
+<span class="comment">// If 2 users read at the same time, both see ${product.stock + 1}</span>
+<span class="comment">// Both write ${product.stock} — one purchase is LOST!</span>
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>2. The solution: Atomic Update</h3>
+                <div class="code-block">
+<span class="comment">// ✅ DynamoDB atomic update:</span>
+{
+  <span class="key">"TableName"</span>: <span class="string">"products"</span>,
+  <span class="key">"Key"</span>: { <span class="key">"product_id"</span>: <span class="string">"${product.id}"</span> },
+  <span class="key">"UpdateExpression"</span>:
+    <span class="string">"SET stock = stock - :qty"</span>,
+  <span class="key">"ExpressionAttributeValues"</span>: {
+    <span class="string">":qty"</span>: <span class="number">1</span>
+  }
+}
+                </div>
+                <p style="margin-top:8px;">DynamoDB handles the math <span class="highlight">internally</span> — the read and write happen as ONE operation. No matter how many users, every purchase is counted correctly.</p>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>3. Result:</h3>
+                <div class="response-block">
+// Stock updated atomically!
+{
+  "product_id": "${product.id}",
+  "stock": ${product.stock}  ← was ${product.stock + 1}, now ${product.stock}
+}
+
+// Cart total: ${cartCount} item${cartCount > 1 ? 's' : ''}
+                </div>
+            </div>
+
+            <div class="dynamo-step">
+                <h3>4. Why this matters for Black Friday:</h3>
+                <div class="comparison-box">
+                    <h4>50,000 concurrent "Add to Cart" clicks:</h4>
+                    <div class="comparison-row"><span class="label">DynamoDB</span><span class="dynamo-val">Every click counted correctly</span></div>
+                    <div class="comparison-row"><span class="label">MySQL (no locking)</span><span class="rds-val">Lost updates — stock goes negative</span></div>
+                    <div class="comparison-row"><span class="label">MySQL (with locking)</span><span class="rds-val">Correct but very slow under load</span></div>
+                </div>
+            </div>
+
+            ${completedSteps.size === 3 ? `
+            <div class="dynamo-step" style="margin-top:20px; padding:16px; background:rgba(34,197,94,0.1); border:1px solid #22c55e; border-radius:8px;">
+                <h3 style="color:#22c55e;">🎉 You completed all 3 operations!</h3>
+                <p style="margin-top:8px;">You've seen how DynamoDB powers a real e-commerce store:</p>
+                <div style="margin-top:8px; font-size:13px; line-height:2;">
+                    <strong style="color:#0ea5e9;">GetItem</strong> — instant product page loads<br>
+                    <strong style="color:#8b5cf6;">Query (GSI)</strong> — fast category browsing<br>
+                    <strong style="color:#f59e0b;">UpdateItem</strong> — safe concurrent stock updates
+                </div>
+                <p style="margin-top:12px;">Now go try these same operations in the <strong style="color:#ff9900;">DynamoDB Console</strong>!</p>
+            </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+// Initialize
+renderProducts();
+</script>
+
+</body>
+</html>
