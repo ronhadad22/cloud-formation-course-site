@@ -19,6 +19,23 @@ This lab is a **quiz** — each question presents a real-world scenario. Think a
 
 ## Part 1: Deploy the Infrastructure
 
+Step 1 — Create a Fork and Download the Code
+
+Go to the repository:
+https://github.com/ronhadad22/cloud-formation-course-site
+
+Click Fork.
+
+⚠ Important
+Uncheck the option:
+“Copy the main branch only”
+
+Then download the project:
+
+git clone https://github.com/<YOUR-USERNAME>/cloud-formation-course-site.git
+cd cloud-formation-course-site
+git checkout db-decision-lab
+
 ```bash
 aws cloudformation deploy \
   --stack-name aws-db-lab \
