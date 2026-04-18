@@ -29,7 +29,7 @@ Learn to build, deploy, and validate AI agents using **LangGraph**, **AWS Bedroc
 │  • Graph-based agent workflows (LangGraph)                             │
 │  • Serverless deployment (AgentCore Runtime)                           │
 │  • Full observability (LangSmith traces)                               │
-│  • Tool integration (AgentCore Gateway)                                │
+│  • Tool integration (LangGraph tools)                                  │
 │  • Memory persistence (AgentCore Memory)                                │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -42,7 +42,7 @@ Learn to build, deploy, and validate AI agents using **LangGraph**, **AWS Bedroc
 | Lab | Topic | What You Learn |
 |-----|-------|----------------|
 | **Lab 1** | LangGraph Basics | Build a simple state machine agent locally |
-| **Lab 2** | Tools & Actions | Add tool calling with AgentCore Gateway |
+| **Lab 2** | Tools & Actions | Add tool calling with LangGraph tools   |
 | **Lab 3** | Memory & State | Implement conversation memory |
 | **Lab 4** | LangSmith Integration | Trace and validate agent behavior |
 | **Lab 5** | Deploy to AgentCore | Production deployment with CLI |
@@ -234,7 +234,7 @@ FINISHED
 
 ---
 
-## Lab 2: Add Tools with AgentCore Gateway
+## Lab 2: Add Tools with LangGraph
 
 ### Understanding Tools in LangGraph
 
@@ -275,7 +275,7 @@ Create `lab2_tools.py`:
 ```python
 """
 Lab 2: LangGraph Agent with Tools
-Demonstrates tool calling through AgentCore Gateway.
+Demonstrates tool calling with LangGraph tools.
 """
 
 from typing import TypedDict, Annotated
@@ -433,7 +433,7 @@ python lab2_tools.py
 
 ---
 
-## Lab 3: Add Memory with AgentCore Memory
+## Lab 3: Add Memory with LangGraph
 
 ### Why Memory Matters
 
