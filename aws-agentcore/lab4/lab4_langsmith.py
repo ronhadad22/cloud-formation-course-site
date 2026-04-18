@@ -1,6 +1,32 @@
 """
 Lab 4: LangGraph Agent with LangSmith Tracing
 Full observability for validation and debugging.
+
+WHAT IS LANGSMITH?
+LangSmith is an observability platform (like a dashboard) that shows you:
+- Every conversation your agent has
+- What tools were called and their results
+- How long each step took
+- Input/output of every node
+- Performance metrics and evaluation scores
+
+WHY USE IT?
+- Debug: See exactly what your agent did and why
+- Evaluate: Test if responses meet quality standards
+- Monitor: Track performance in production
+- Iterate: Improve based on real data
+
+HOW IT WORKS:
+1. Set environment variables (API key, project name)
+2. LangGraph automatically sends traces to LangSmith
+3. View traces at https://smith.langchain.com
+
+TRACING AUTO-MAGIC:
+When LANGSMITH_TRACING_V2=true, LangGraph automatically:
+- Records every node execution
+- Captures inputs and outputs
+- Measures latency
+- Links tool calls to responses
 """
 
 import os
@@ -10,17 +36,28 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
-from langsmith import Client
+from langsmith import Client  # LangSmith SDK
 
-# Set LangSmith environment variables (configure these!)
-# export LANGSMITH_API_KEY="ls-..."
-# export LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+# ============================================================================
+# STEP 1: CONFIGURE LANGSMITH
+# ============================================================================
+# These environment variables tell LangGraph to send traces to LangSmith.
+# 
+# BEFORE RUNNING, set your API key:
+#   export LANGSMITH_API_KEY="ls-your-key-here"
+# Get your key from: https://smith.langchain.com
+
+# Enable tracing (sends data to LangSmith)
 os.environ.setdefault("LANGSMITH_TRACING_V2", "true")
+# Name of the project in LangSmith dashboard
 os.environ.setdefault("LANGSMITH_PROJECT", "aws-agentcore-lab")
 
-# Verify LangSmith is configured
+# ============================================================================
+# STEP 2: VERIFY CONFIGURATION
+# ============================================================================
+
 def check_langsmith_config():
-    """Check if LangSmith is properly configured."""
+    """Check if LangSmith API key is set."""
     api_key = os.environ.get("LANGSMITH_API_KEY")
     if not api_key:
         print("⚠️  LANGSMITH_API_KEY not set!")
@@ -29,11 +66,16 @@ def check_langsmith_config():
         return False
     return True
 
-# State
+# ============================================================================
+# STEP 3: DEFINE STATE AND TOOLS
+# ============================================================================
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
-# Tool with tracing
+# Tools are automatically traced by LangSmith
+# You'll see in the dashboard: which tool was called, with what args, and the result
+
 @tool
 def calculator(expression: str) -> str:
     """
@@ -72,7 +114,11 @@ def weather_lookup(city: str) -> str:
         return f"Weather in {city}: {w['temp']}°C, {w['condition']}"
     return f"No weather data available for {city}"
 
-# LLM with tools
+# ============================================================================
+# STEP 4: INITIALIZE LLM WITH TOOLS
+# ============================================================================
+# All LLM calls will be traced automatically when tracing is enabled
+
 try:
     llm = ChatBedrockConverse(
         model_id="eu.anthropic.claude-sonnet-4-6",
@@ -84,7 +130,16 @@ except Exception as e:
     sys.exit(1)
 
 def agent_node(state: AgentState):
-    """Agent with automatic LangSmith tracing."""
+    """
+    Agent node - all execution is automatically traced.
+    
+    In LangSmith dashboard you'll see:
+    - Node name: "agent"
+    - Input: messages
+    - Output: response
+    - Latency: how long the LLM call took
+    - Token usage: input/output tokens
+    """
     messages = state["messages"]
     
     system = """You are a helpful AI assistant with calculator and weather tools.
@@ -99,13 +154,22 @@ def agent_node(state: AgentState):
     
     return {"messages": [response]}
 
-# Build graph
+# ============================================================================
+# STEP 5: BUILD THE GRAPH
+# ============================================================================
+# Simple 1-node graph for this demo
+# Tracing works with any graph complexity
+
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent_node)
 workflow.set_entry_point("agent")
 workflow.add_edge("agent", END)
 
 app = workflow.compile()
+
+# ============================================================================
+# STEP 6: RUN WITH TRACING
+# ============================================================================
 
 def run_with_tracing(test_inputs):
     """Run agent and create LangSmith traces."""
@@ -131,7 +195,17 @@ def run_with_tracing(test_inputs):
     return results
 
 def run_evaluation_test():
-    """Run a simple evaluation test."""
+    """
+    Run evaluation tests with expected outcomes.
+    
+    EVALUATION CONCEPT:
+    After running tests, you can manually verify in LangSmith:
+    - Did the agent use the right tool?
+    - Was the math correct?
+    - Did it answer appropriately?
+    
+    Or automate: LangSmith supports automated evals, feedback, and scoring.
+    """
     print("\n" + "=" * 50)
     print("🔍 Running Evaluation Tests")
     print("=" * 50)
@@ -175,7 +249,9 @@ def run_evaluation_test():
     
     return results
 
-# Main execution
+# ============================================================================
+# STEP 7: MAIN EXECUTION
+# ============================================================================
 if __name__ == "__main__":
     print("🔍 LangSmith Tracing Lab - Lab 4")
     print("=" * 50)
