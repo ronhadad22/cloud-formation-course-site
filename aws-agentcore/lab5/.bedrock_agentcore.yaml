@@ -2,12 +2,11 @@
 # This file configures the agent for deployment
 
 agents:
-  my-langgraph-agent:
-    name: my-langgraph-agent
+  my_langgraph_agent:
+    name: my_langgraph_agent
     description: A LangGraph agent deployed on AWS Bedrock AgentCore
     entrypoint: agent.py
     runtime: python
-    deployment_type: direct_code_deploy
     # Environment variables
     env:
       - AWS_REGION=eu-central-1
