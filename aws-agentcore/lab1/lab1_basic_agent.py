@@ -6,7 +6,7 @@ A simple agent that can answer questions and reason step-by-step.
 from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 import json
 
 # Define the state schema
@@ -16,9 +16,9 @@ class AgentState(TypedDict):
     next_step: str  # What to do next
 
 # Initialize LLM
-llm = ChatBedrock(
-    model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
-    region_name="us-east-1"
+llm = ChatBedrockConverse(
+    model_id="eu.anthropic.claude-sonnet-4-6",
+    region_name="eu-central-1"
 )
 
 # Define nodes (agent steps)

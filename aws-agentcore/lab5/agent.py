@@ -9,7 +9,7 @@ import logging
 from typing import TypedDict, Annotated, Dict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 
 # Configure logging
@@ -47,9 +47,9 @@ def get_user_profile(user_id: str) -> str:
 
 # Initialize LLM with error handling
 try:
-    llm = ChatBedrock(
-        model_id=os.environ.get("MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"),
-        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+    llm = ChatBedrockConverse(
+        model_id=os.environ.get("MODEL_ID", "eu.anthropic.claude-sonnet-4-6"),
+        region_name=os.environ.get("AWS_REGION", "eu-central-1"),
         model_kwargs={
             "temperature": 0.7,
             "max_tokens": 2048

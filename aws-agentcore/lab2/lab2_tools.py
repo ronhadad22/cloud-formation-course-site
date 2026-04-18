@@ -7,7 +7,7 @@ from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 import json
 
@@ -78,9 +78,9 @@ def check_inventory(product_id: str) -> str:
 tools = [search_products, calculate_shipping, check_inventory]
 
 # Bind tools to LLM
-llm = ChatBedrock(
-    model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
-    region_name="us-east-1"
+llm = ChatBedrockConverse(
+    model_id="eu.anthropic.claude-sonnet-4-6",
+    region_name="eu-central-1"
 ).bind_tools(tools)
 
 # Define nodes

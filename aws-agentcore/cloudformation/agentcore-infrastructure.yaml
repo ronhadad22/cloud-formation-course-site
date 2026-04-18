@@ -38,7 +38,9 @@ Resources:
                 Resource: 
                   - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-*
                   - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-*
+                  - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-7-*
                   - !Sub arn:aws:bedrock:*::foundation-model/amazon.nova-*
+                  - arn:aws:bedrock:*:*:inference-profile/*
         - PolicyName: CloudWatchMetrics
           PolicyDocument:
             Version: '2012-10-17'

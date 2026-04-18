@@ -8,7 +8,7 @@ import sys
 from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import tool
 from langsmith import Client
 
@@ -74,9 +74,9 @@ def weather_lookup(city: str) -> str:
 
 # LLM with tools
 try:
-    llm = ChatBedrock(
-        model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        region_name="us-east-1"
+    llm = ChatBedrockConverse(
+        model_id="eu.anthropic.claude-sonnet-4-6",
+        region_name="eu-central-1"
     ).bind_tools([calculator, weather_lookup])
 except Exception as e:
     print(f"❌ Failed to initialize LLM: {e}")
