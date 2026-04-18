@@ -75,7 +75,7 @@ def weather_lookup(city: str) -> str:
 # LLM with tools
 try:
     llm = ChatBedrock(
-        model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+        model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
         region_name="us-east-1"
     ).bind_tools([calculator, weather_lookup])
 except Exception as e:

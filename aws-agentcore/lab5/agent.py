@@ -48,7 +48,7 @@ def get_user_profile(user_id: str) -> str:
 # Initialize LLM with error handling
 try:
     llm = ChatBedrock(
-        model_id=os.environ.get("MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0"),
+        model_id=os.environ.get("MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"),
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
         model_kwargs={
             "temperature": 0.7,

@@ -19,7 +19,7 @@ dependencies:
 # Environment variables available to the agent
 environment:
   AWS_REGION: us-east-1
-  MODEL_ID: anthropic.claude-3-sonnet-20240229-v1:0
+  MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
   LOG_LEVEL: INFO
   # These will be set during deployment:
   # LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}

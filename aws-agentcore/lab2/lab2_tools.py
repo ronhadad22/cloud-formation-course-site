@@ -79,7 +79,7 @@ tools = [search_products, calculate_shipping, check_inventory]
 
 # Bind tools to LLM
 llm = ChatBedrock(
-    model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+    model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
     region_name="us-east-1"
 ).bind_tools(tools)
 

@@ -37,6 +37,7 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                 Resource: 
                   - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-*
+                  - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-*
                   - !Sub arn:aws:bedrock:*::foundation-model/amazon.nova-*
         - PolicyName: CloudWatchMetrics
           PolicyDocument:
