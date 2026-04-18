@@ -1,21 +1,62 @@
-# Bedrock AgentCore Starter Toolkit Configuration
-# This file configures the agent for deployment
-
+default_agent: my_langgraph_agent
 agents:
   my_langgraph_agent:
     name: my_langgraph_agent
-    description: A LangGraph agent deployed on AWS Bedrock AgentCore
-    entrypoint: agent.py
-    runtime: python
-    # Environment variables
-    env:
-      - AWS_REGION=eu-central-1
-      - MODEL_ID=eu.anthropic.claude-sonnet-4-6
-      - LOG_LEVEL=INFO
-    # AWS configuration
+    language: python
+    node_version: '20'
+    entrypoint: /Users/rwnhdd/Downloads/cloudformation/aws-agentcore/lab5/agent.py
+    deployment_type: direct_code_deploy
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: docker
+    source_path: /Users/rwnhdd/Downloads/cloudformation/aws-agentcore/lab5
     aws:
-      region: eu-central-1
-      account: "050752632489"
-      execution_role: auto
-      ecr: auto
-    # Dependencies are auto-detected from requirements.txt
+      execution_role: arn:aws:iam::050752632489:role/AmazonBedrockAgentCoreSDKRuntime-eu-west-1-71c546fefe
+      execution_role_auto_create: false
+      account: 050752632489
+      region: eu-west-1
+      ecr_repository: 050752632489.dkr.ecr.eu-west-1.amazonaws.com/bedrock-agentcore-my_langgraph_agent
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    codebuild:
+      project_name: null
+      execution_role: null
+      source_bucket: null
+    memory:
+      mode: STM_ONLY
+      memory_id: my_langgraph_agent_mem-5XS4kCHM7O
+      memory_arn: arn:aws:bedrock-agentcore:eu-west-1:050752632489:memory/my_langgraph_agent_mem-5XS4kCHM7O
+      memory_name: my_langgraph_agent_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: true
+      was_created_by_toolkit: true
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
