@@ -508,7 +508,7 @@ aws-agentcore/
 │   └── lab4_langsmith.py
 ├── lab5/                       # Production deployment
 │   ├── agent.py                # Production agent code
-│   ├── agentcore.yaml          # Deployment config
+│   ├── .bedrock_agentcore.yaml # Deployment config (dot prefix required)
 │   ├── deploy.sh               # Deployment script
 │   └── requirements.txt
 ├── lab6/                       # Monitoring

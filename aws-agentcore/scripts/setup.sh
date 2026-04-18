@@ -88,21 +88,11 @@ echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
 echo -e "${YELLOW}▶ Checking AgentCore CLI...${NC}"
 if ! command -v agentcore &> /dev/null; then
-    echo "  Installing AgentCore CLI via npm..."
-    npm install -g @aws/agentcore
+    echo "  Installing AgentCore CLI..."
+    pip install -q bedrock-agentcore-starter-toolkit
 fi
 agentcore_version=$(agentcore --version 2>&1 | tail -1)
 echo -e "${GREEN}✓ AgentCore CLI: $agentcore_version${NC}"
-
-# Check Node.js version
-echo ""
-echo -e "${YELLOW}▶ Checking Node.js...${NC}"
-if ! command -v node &> /dev/null; then
-    echo -e "${YELLOW}⚠ Node.js not found. Install from https://nodejs.org/${NC}"
-    exit 1
-fi
-node_version=$(node --version)
-echo -e "${GREEN}✓ Node.js: $node_version${NC}"
 
 # Create .env file template
 echo ""

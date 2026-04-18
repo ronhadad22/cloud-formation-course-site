@@ -243,8 +243,8 @@ if __name__ == "__main__":
     
     print("✅ Local tests complete!")
     print("\nTo deploy to AgentCore:")
-    print("  1. Ensure AWS credentials are configured (aws configure)")
-    print("  2. Ensure Node.js and @aws/agentcore CLI are installed")
+    print("  1. Ensure AWS credentials are configured (aws configure or SSO)")
+    print("  2. For SSO: export AWS_PROFILE=iitc-profile")
     print("  3. Run: ./deploy.sh")
     print("\nOr manually:")
-    print("  cd lab5 && agentcore deploy")
+    print("  cd lab5 && agentcore deploy --agent my-langgraph-agent")

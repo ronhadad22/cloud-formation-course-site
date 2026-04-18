@@ -82,13 +82,13 @@ python lab2_tools.py
 cd ../lab5
 
 # Deploy (ensure AWS credentials are configured first)
-# Uses agentcore.yaml for configuration
+# For AWS SSO: export AWS_PROFILE=your-profile-name
 ./deploy.sh
 
-# Or deploy directly with:
-# agentcore deploy
+# Or deploy directly:
+# agentcore deploy --agent my-langgraph-agent
 
-# Test deployed agent (get endpoint from agentcore status)
+# Test deployed agent (get endpoint from agentcore status --agent my-langgraph-agent)
 curl -X POST https://<your-endpoint>/invoke \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "thread_id": "test-1"}'
