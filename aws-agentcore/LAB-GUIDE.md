@@ -911,15 +911,23 @@ if __name__ == "__main__":
 
 **Deploy:**
 
+The AgentCore CLI uses a two-step workflow: first configure the agent, then deploy.
+
 ```bash
-# Deploy (uses your AWS credentials - no separate login needed)
-agentcore deploy \
-  --name my-langgraph-agent \
-  --file agentcore.yaml \
-  --region us-east-1
+# Step 1: Configure the agent (one-time setup)
+# This registers your agent configuration with AgentCore
+agentcore configure \
+  --agent my-langgraph-agent \
+  --entrypoint agent.py \
+  --requirements-file requirements.txt \
+  --env AWS_REGION=eu-central-1 \
+  --env MODEL_ID=eu.anthropic.claude-sonnet-4-6
+
+# Step 2: Deploy the configured agent
+agentcore deploy --agent my-langgraph-agent --wait
 
 # Check deployment status
-agentcore status --name my-langgraph-agent
+agentcore status --agent my-langgraph-agent
 
 # The CLI will output the endpoint URL after successful deployment
 # Test the deployed agent
@@ -928,7 +936,7 @@ curl -X POST https://<endpoint>/invoke \
   -d '{"message": "Hello!", "thread_id": "test-1"}'
 ```
 
-**Note:** The CLI automatically packages your code, uploads to S3, and deploys to AgentCore Runtime. No manual S3 upload needed!
+**Note:** The CLI automatically packages your code, uploads to S3, and deploys to AgentCore Runtime. The `agentcore.yaml` file is for reference/documentation - actual configuration is done via CLI flags.
 
 ---
 

@@ -61,15 +61,24 @@ echo ""
 echo "Validating Python code..."
 python -m py_compile agent.py && echo "✅ agent.py is valid Python"
 
+# Configure agent (if not already configured)
+echo ""
+echo "🔧 Configuring agent..."
+agentcore configure \
+    --agent "$AGENT_NAME" \
+    --entrypoint agent.py \
+    --requirements-file requirements.txt \
+    --env AWS_REGION="$REGION" \
+    --env MODEL_ID=eu.anthropic.claude-sonnet-4-6 \
+    --auto-update-on-conflict
+
 # Deploy
 echo ""
 echo "📦 Deploying to AgentCore..."
 echo "This may take a few minutes..."
 
 agentcore deploy \
-    --name "$AGENT_NAME" \
-    --file agentcore.yaml \
-    --region "$REGION" \
+    --agent "$AGENT_NAME" \
     --wait
 
 echo ""
@@ -78,29 +87,25 @@ echo "✅ Deployment complete!"
 # Get endpoint
 echo ""
 echo "Fetching endpoint information..."
-agentcore status --name "$AGENT_NAME" --region "$REGION"
+agentcore status --agent "$AGENT_NAME"
 
 # Test the deployed agent
-# Note: Extract endpoint from status output or use the URL shown after deploy
-
-if [ -n "$ENDPOINT" ]; then
-    echo ""
-    echo "🧪 Testing deployed agent..."
-    curl -s -X POST "$ENDPOINT/invoke" \
-        -H "Content-Type: application/json" \
-        -d '{"message": "Hello from deployment script!", "thread_id": "deploy-test-123"}' | head -c 500
-    echo ""
-fi
-
+# Note: The endpoint URL is shown in the status output above
 echo ""
+echo "🧪 To test your deployed agent:"
+echo "  curl -X POST <endpoint-from-status>/invoke \\"
+echo "    -H \"Content-Type: application/json\" \\"
+echo "    -d '{\"message\": \"Hello!\", \"thread_id\": \"test-123\"}'"
+echo ""
+
 echo "=========================================="
 echo "🎉 Deployment successful!"
 echo ""
 echo "Next steps:"
-echo "  1. Test your agent: curl -X POST $ENDPOINT/invoke -d '{\"message\": \"Hello\"}'"
-echo "  2. View logs: agentcore obs --name $AGENT_NAME"
+echo "  1. Get endpoint: agentcore status --agent $AGENT_NAME"
+echo "  2. View logs: agentcore obs --agent $AGENT_NAME"
 echo "  3. Monitor in LangSmith: https://smith.langchain.com"
 echo "  4. Update agent: Run this script again after making changes"
 echo ""
 echo "To destroy the agent:"
-echo "  agentcore destroy --name $AGENT_NAME --region $REGION"
+echo "  agentcore destroy --agent $AGENT_NAME"

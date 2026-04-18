@@ -82,7 +82,8 @@ python lab2_tools.py
 cd ../lab5
 
 # Deploy (ensure AWS credentials are configured first)
-./deploy.sh my-langgraph-agent us-east-1
+# The script will configure and deploy the agent
+./deploy.sh my-langgraph-agent eu-central-1
 
 # Test deployed agent
 curl -X POST https://<your-endpoint>/invoke \
