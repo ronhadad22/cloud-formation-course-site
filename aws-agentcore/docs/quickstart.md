@@ -82,10 +82,13 @@ python lab2_tools.py
 cd ../lab5
 
 # Deploy (ensure AWS credentials are configured first)
-# The script will configure and deploy the agent
-./deploy.sh my-langgraph-agent eu-central-1
+# Uses agentcore.yaml for configuration
+./deploy.sh
 
-# Test deployed agent
+# Or deploy directly with:
+# agentcore deploy
+
+# Test deployed agent (get endpoint from agentcore status)
 curl -X POST https://<your-endpoint>/invoke \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "thread_id": "test-1"}'

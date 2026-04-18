@@ -907,27 +907,21 @@ if __name__ == "__main__":
 
 **Prerequisites:**
 - AWS credentials configured (`aws configure` or environment variables)
-- AgentCore CLI installed: `pip install bedrock-agentcore-starter-toolkit`
+- Node.js 20+ installed: `node --version`
+- AgentCore CLI installed: `npm install -g @aws/agentcore`
 
 **Deploy:**
 
-The AgentCore CLI uses a two-step workflow: first configure the agent, then deploy.
+The official AgentCore CLI uses a project-based workflow. The lab5 files are pre-configured for deployment:
 
 ```bash
-# Step 1: Configure the agent (one-time setup)
-# This registers your agent configuration with AgentCore
-agentcore configure \
-  --agent my-langgraph-agent \
-  --entrypoint agent.py \
-  --requirements-file requirements.txt \
-  --env AWS_REGION=eu-central-1 \
-  --env MODEL_ID=eu.anthropic.claude-sonnet-4-6
+cd ../lab5
 
-# Step 2: Deploy the configured agent
-agentcore deploy --agent my-langgraph-agent --wait
+# Deploy (uses agentcore.yaml configuration in the project)
+agentcore deploy
 
 # Check deployment status
-agentcore status --agent my-langgraph-agent
+agentcore status
 
 # The CLI will output the endpoint URL after successful deployment
 # Test the deployed agent
@@ -936,7 +930,7 @@ curl -X POST https://<endpoint>/invoke \
   -d '{"message": "Hello!", "thread_id": "test-1"}'
 ```
 
-**Note:** The CLI automatically packages your code, uploads to S3, and deploys to AgentCore Runtime. The `agentcore.yaml` file is for reference/documentation - actual configuration is done via CLI flags.
+**Note:** The CLI automatically packages your code, uploads to S3, and deploys to AgentCore Runtime. The `agentcore.yaml` file is the configuration source.
 
 ---
 
