@@ -81,10 +81,7 @@ python lab2_tools.py
 ```bash
 cd ../lab5
 
-# Login to AgentCore
-agentcore login
-
-# Deploy
+# Deploy (ensure AWS credentials are configured first)
 ./deploy.sh my-langgraph-agent us-east-1
 
 # Test deployed agent

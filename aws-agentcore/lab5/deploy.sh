@@ -11,7 +11,7 @@ echo "=========================================="
 echo "Checking prerequisites..."
 
 if ! command -v agentcore &> /dev/null; then
-    echo "❌ agentcore CLI not found. Install with: pip install amazon-bedrock-agentcore"
+    echo "❌ agentcore CLI not found. Install with: pip install bedrock-agentcore-starter-toolkit"
     exit 1
 fi
 
@@ -20,12 +20,13 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
-# Check if logged in to AgentCore
-echo "Verifying AgentCore login..."
-agentcore whoami || {
-    echo "❌ Not logged in. Run: agentcore login"
+# Check AWS credentials
+echo "Verifying AWS credentials..."
+aws sts get-caller-identity &> /dev/null || {
+    echo "❌ AWS credentials not configured. Run: aws configure"
     exit 1
 }
+echo "✅ AWS credentials valid"
 
 # Configuration
 AGENT_NAME=${1:-"my-langgraph-agent"}
@@ -77,10 +78,10 @@ echo "✅ Deployment complete!"
 # Get endpoint
 echo ""
 echo "Fetching endpoint information..."
-agentcore describe --name "$AGENT_NAME" --region "$REGION"
+agentcore status --name "$AGENT_NAME" --region "$REGION"
 
 # Test the deployed agent
-ENDPOINT=$(agentcore describe --name "$AGENT_NAME" --region "$REGION" --query 'EndpointUrl' --output text)
+# Note: Extract endpoint from status output or use the URL shown after deploy
 
 if [ -n "$ENDPOINT" ]; then
     echo ""
@@ -97,9 +98,9 @@ echo "🎉 Deployment successful!"
 echo ""
 echo "Next steps:"
 echo "  1. Test your agent: curl -X POST $ENDPOINT/invoke -d '{\"message\": \"Hello\"}'"
-echo "  2. View logs: agentcore logs --name $AGENT_NAME"
+echo "  2. View logs: agentcore obs --name $AGENT_NAME"
 echo "  3. Monitor in LangSmith: https://smith.langchain.com"
 echo "  4. Update agent: Run this script again after making changes"
 echo ""
-echo "To delete the agent:"
-echo "  agentcore delete --name $AGENT_NAME --region $REGION"
+echo "To destroy the agent:"
+echo "  agentcore destroy --name $AGENT_NAME --region $REGION"

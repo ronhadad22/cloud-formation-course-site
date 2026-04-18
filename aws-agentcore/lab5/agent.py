@@ -243,5 +243,5 @@ if __name__ == "__main__":
     
     print("✅ Local tests complete!")
     print("\nTo deploy to AgentCore:")
-    print("  1. agentcore login")
-    print("  2. agentcore deploy --name my-langgraph-agent")
+    print("  1. Ensure AWS credentials are configured (aws configure)")
+    print("  2. agentcore deploy --name my-langgraph-agent --file agentcore.yaml")

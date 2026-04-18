@@ -905,24 +905,30 @@ if __name__ == "__main__":
 
 ### Step 3: Deploy with AgentCore CLI
 
-```bash
-# Login to AgentCore
-agentcore login
+**Prerequisites:**
+- AWS credentials configured (`aws configure` or environment variables)
+- AgentCore CLI installed: `pip install bedrock-agentcore-starter-toolkit`
 
-# Deploy
+**Deploy:**
+
+```bash
+# Deploy (uses your AWS credentials - no separate login needed)
 agentcore deploy \
   --name my-langgraph-agent \
   --file agentcore.yaml \
   --region us-east-1
 
-# Get endpoint URL
-agentcore describe --name my-langgraph-agent
+# Check deployment status
+agentcore status --name my-langgraph-agent
 
+# The CLI will output the endpoint URL after successful deployment
 # Test the deployed agent
 curl -X POST https://<endpoint>/invoke \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "thread_id": "test-1"}'
 ```
+
+**Note:** The CLI automatically packages your code, uploads to S3, and deploys to AgentCore Runtime. No manual S3 upload needed!
 
 ---
 

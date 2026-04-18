@@ -89,7 +89,7 @@ echo ""
 echo -e "${YELLOW}▶ Checking AgentCore CLI...${NC}"
 if ! command -v agentcore &> /dev/null; then
     echo "  Installing AgentCore CLI..."
-    pip install -q amazon-bedrock-agentcore
+    pip install -q bedrock-agentcore-starter-toolkit
 fi
 agentcore_version=$(agentcore --version 2>&1 | tail -1)
 echo -e "${GREEN}✓ AgentCore CLI: $agentcore_version${NC}"
