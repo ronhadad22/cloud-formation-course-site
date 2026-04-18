@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Bedrock AgentCore Lab Infrastructure
+  Sets up necessary IAM roles and permissions for AgentCore deployment
+
+Parameters:
+  LabPrefix:
+    Type: String
+    Default: agentcore-lab
+    Description: Prefix for all resources created by this stack
+
+Resources:
+  # IAM Role for AgentCore Runtime
+  AgentCoreExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${LabPrefix}-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-3-*
+                  - !Sub arn:aws:bedrock:*::foundation-model/amazon.nova-*
+        - PolicyName: CloudWatchMetrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: 'AgentCore/LangGraph'
+
+  # IAM Role for LangSmith integration (optional)
+  LangSmithIntegrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${LabPrefix}-langsmith-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: 
+                  - !Ref LangSmithApiKeySecret
+
+  # Secret for LangSmith API Key (create this manually after deployment)
+  LangSmithApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${LabPrefix}/langsmith-api-key
+      Description: API key for LangSmith integration
+      SecretString: placeholder-replace-with-real-key
+
+  # CloudWatch Log Group
+  AgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/agentcore/${LabPrefix}
+      RetentionInDays: 7
+
+  # SNS Topic for alerts
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${LabPrefix}-alerts
+      DisplayName: AgentCore Lab Alerts
+
+Outputs:
+  ExecutionRoleArn:
+    Description: IAM role ARN for AgentCore Runtime
+    Value: !GetAtt AgentCoreExecutionRole.Arn
+    Export:
+      Name: !Sub ${LabPrefix}-execution-role
+
+  LangSmithSecretArn:
+    Description: Secret ARN for LangSmith API key
+    Value: !Ref LangSmithApiKeySecret
+    Export:
+      Name: !Sub ${LabPrefix}-langsmith-secret
+
+  LogGroupName:
+    Description: CloudWatch Log Group for agents
+    Value: !Ref AgentLogGroup
+
+  AlertTopicArn:
+    Description: SNS Topic for monitoring alerts
+    Value: !Ref AlertTopic

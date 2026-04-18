@@ -1,0 +1,72 @@
+# AgentCore Runtime Configuration
+# This file tells AgentCore how to deploy your LangGraph agent
+
+name: my-langgraph-agent
+version: "1.0.0"
+description: A production-ready LangGraph agent deployed on AWS Bedrock AgentCore
+
+# Runtime configuration
+runtime:
+  type: python
+  version: "3.11"
+  entrypoint: agent.py
+  handler: lambda_handler
+
+# Dependencies (requirements.txt will be installed automatically)
+dependencies:
+  requirements_file: requirements.txt
+
+# Environment variables available to the agent
+environment:
+  AWS_REGION: us-east-1
+  MODEL_ID: anthropic.claude-3-sonnet-20240229-v1:0
+  LOG_LEVEL: INFO
+  # These will be set during deployment:
+  # LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
+  # LANGSMITH_PROJECT: agentcore-production
+
+# Resource allocation
+resources:
+  memory: 1024MB
+  timeout: 300  # 5 minutes max execution
+  concurrent_executions: 100
+
+# AgentCore integrations
+integrations:
+  # Connect to AgentCore Gateway for tools
+  gateway:
+    enabled: true
+    # Tools will be auto-discovered from your code
+    
+  # Connect to AgentCore Memory for persistence
+  memory:
+    enabled: true
+    session_ttl: 86400  # 24 hours
+    
+  # Connect to LangSmith for tracing
+  tracing:
+    enabled: true
+    provider: langsmith
+
+# Security settings
+security:
+  # Use AWS IAM roles for authentication
+  iam_role: auto
+  # VPC configuration (if needed)
+  vpc:
+    enabled: false
+    # subnet_ids: []
+    # security_group_ids: []
+
+# Scaling configuration
+scaling:
+  min_instances: 0  # Scale to zero when not in use
+  max_instances: 10
+  scale_up_threshold: 70  # CPU %
+  scale_down_threshold: 30
+
+# Logging
+logging:
+  level: INFO
+  format: json
+  # CloudWatch log group will be created automatically
