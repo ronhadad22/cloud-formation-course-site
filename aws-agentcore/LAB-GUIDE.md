@@ -730,7 +730,9 @@ open https://smith.langchain.com
 
 ---
 
-## Lab 5: Deploy to AgentCore Runtime
+## Lab 5: Deploy to AgentCore Runtime (Optional)
+
+> **Note:** This lab is optional. If you have already learned Flask in other courses or have experience with web frameworks, you can skip this deployment section and focus on the local development labs (Labs 1-4). Lab 5 demonstrates production deployment concepts that you may already be familiar with.
 
 ### Understanding AgentCore Runtime
 
